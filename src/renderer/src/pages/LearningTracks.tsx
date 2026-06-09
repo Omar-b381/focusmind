@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { 
   BookOpen, Plus, Sparkles, AlertCircle, Trash2, 
@@ -48,6 +49,37 @@ export default function LearningTracks() {
   const [newWhyStarted, setNewWhyStarted] = useState('')
   const [newCommitment, setNewCommitment] = useState('20 دقيقة يومياً')
   const [newTotalLessons, setNewTotalLessons] = useState(10)
+
+  const queryClient = useQueryClient()
+  const [createMode, setCreateMode] = useState<'manual' | 'youtube'>('manual')
+  const [ytUrl, setYtUrl] = useState('')
+  const [isImporting, setIsImporting] = useState(false)
+
+  const handleImportYoutube = async () => {
+    if (!ytUrl.trim()) return
+    setIsImporting(true)
+    try {
+      const result = await window.api.learningTracks.importYoutubePlaylist(
+        ytUrl.trim(),
+        newWhyStarted,
+        newCommitment
+      )
+      // Invalidate queries to reload track list
+      await queryClient.invalidateQueries({ queryKey: ['learning-tracks'] })
+      
+      // Select the newly imported track
+      setSelectedTrackId(result.trackId)
+      
+      // Close modal and reset fields
+      setCreateModalOpen(false)
+      resetForm()
+      setYtUrl('')
+    } catch (err: any) {
+      alert(err.message || 'فشل استيراد قائمة التشغيل.')
+    } finally {
+      setIsImporting(false)
+    }
+  }
 
   const handleCreateTrack = () => {
     if (!newTitle.trim()) return
@@ -217,103 +249,207 @@ export default function LearningTracks() {
         size="md"
       >
         <div className="space-y-4 py-2 font-cairo">
-          <div className="grid grid-cols-4 gap-3">
-            <div className="col-span-1">
-              <label className="block text-xs font-bold text-gray-400 mb-1">رمز المسار</label>
-              <Input 
-                value={newEmoji} 
-                onChange={(e) => setNewEmoji(e.target.value)} 
-                placeholder="📚" 
-                className="text-center text-xl"
-              />
-            </div>
-            <div className="col-span-3">
-              <label className="block text-xs font-bold text-gray-400 mb-1">اسم المسار التعليمي</label>
-              <Input 
-                value={newTitle} 
-                onChange={(e) => setNewTitle(e.target.value)} 
-                placeholder="مثال: تعلم لغة جافاسكريبت" 
-                className="w-full"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-400 mb-1">الوصف المختصر</label>
-            <textarea
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
-              placeholder="اكتب فكرة سريعة عن الكورس أو الكتاب..."
-              className="w-full bg-dark-surface border border-dark-border rounded-xl p-3 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-tajawal"
-              rows={2}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-400 mb-1">منصة التعلم / المصدر</label>
-              <Input 
-                value={newSource} 
-                onChange={(e) => setNewSource(e.target.value)} 
-                placeholder="يوتيوب / يوديمي / كتاب" 
-                className="w-full text-xs"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 mb-1">رابط المصدر (إن وجد)</label>
-              <Input 
-                value={newSourceUrl} 
-                onChange={(e) => setNewSourceUrl(e.target.value)} 
-                placeholder="https://..." 
-                className="w-full text-xs"
-              />
-            </div>
-          </div>
-
-          {/* Anti-abandonment Fields */}
-          <div className="p-4 bg-indigo-950/20 border border-indigo-500/10 rounded-2xl space-y-3">
-            <h4 className="text-xs font-bold text-indigo-400 flex items-center gap-1">
-              <Sparkles className="h-4 w-4" /> 
-              آليات الـ ADHD لمكافحة هجر الكورسات:
-            </h4>
-            
-            <div>
-              <label className="block text-[11px] font-bold text-gray-300 mb-1">لماذا أبدأ هذا المسار الآن؟ (أهم دافع عاطفي)</label>
-              <textarea
-                value={newWhyStarted}
-                onChange={(e) => setNewWhyStarted(e.target.value)}
-                placeholder="مثال: حابب أتعلم علشان أعمل ألعابي الخاصة وأشعر بالفخر!"
-                className="w-full bg-dark-bg border border-dark-border rounded-xl p-2.5 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-tajawal"
-                rows={2}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold text-gray-300 mb-1">الالتزام اليومي المقترح</label>
-                <Input 
-                  value={newCommitment} 
-                  onChange={(e) => setNewCommitment(e.target.value)} 
-                  placeholder="مثال: 15 دقيقة فقط يومياً" 
-                  className="w-full text-xs"
-                />
+          {isImporting ? (
+            <div className="py-12 flex flex-col items-center justify-center space-y-4 text-center">
+              <div className="relative w-16 h-16">
+                <div className="absolute inset-0 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin" />
+                <BrainIcon className="absolute inset-3 h-10 w-10 text-indigo-400 animate-pulse" />
               </div>
-              <div>
-                <label className="block text-[11px] font-bold text-gray-300 mb-1">عدد الدروس الكلي</label>
-                <Input 
-                  type="number"
-                  value={newTotalLessons} 
-                  onChange={(e) => setNewTotalLessons(parseInt(e.target.value) || 10)} 
-                  className="w-full text-xs"
-                />
+              <div className="space-y-2">
+                <h4 className="text-base font-bold text-white font-cairo">جاري الاتصال والتحليل بالذكاء الاصطناعي... 🧠</h4>
+                <p className="text-xs text-gray-400 max-w-sm leading-relaxed font-tajawal">
+                  نقوم بسحب عناوين فيديوهات قائمة التشغيل ومددها، وبناء خطة طريق مفككة وهيكلة خريطة مفاهيم ثلاثية الأبعاد تفاعلية تناسب عقلك المشتت. خذ نفساً عميقاً! 🧘
+                </p>
               </div>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* Mode Selector Tabs */}
+              <div className="flex bg-[#141621]/80 p-1.5 rounded-xl border border-dark-border mb-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateMode('manual')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${
+                    createMode === 'manual' 
+                      ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' 
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  <span>📚</span>
+                  <span>مسار محلي جديد</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreateMode('youtube')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${
+                    createMode === 'youtube' 
+                      ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' 
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  <span>📺</span>
+                  <span>استيراد كورس يوتيوب</span>
+                </button>
+              </div>
 
-          <div className="flex justify-end gap-3 pt-3 border-t border-dark-border">
-            <Button variant="secondary" onClick={() => setCreateModalOpen(false)}>إلغاء</Button>
-            <Button variant="primary" onClick={handleCreateTrack}>حفظ المسار</Button>
-          </div>
+              {createMode === 'manual' ? (
+                <>
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="col-span-1">
+                      <label className="block text-xs font-bold text-gray-400 mb-1">رمز المسار</label>
+                      <Input 
+                        value={newEmoji} 
+                        onChange={(e) => setNewEmoji(e.target.value)} 
+                        placeholder="📚" 
+                        className="text-center text-xl"
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <label className="block text-xs font-bold text-gray-400 mb-1">اسم المسار التعليمي</label>
+                      <Input 
+                        value={newTitle} 
+                        onChange={(e) => setNewTitle(e.target.value)} 
+                        placeholder="مثال: تعلم لغة جافاسكريبت" 
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 mb-1">الوصف المختصر</label>
+                    <textarea
+                      value={newDesc}
+                      onChange={(e) => setNewDesc(e.target.value)}
+                      placeholder="اكتب فكرة سريعة عن الكورس أو الكتاب..."
+                      className="w-full bg-dark-surface border border-dark-border rounded-xl p-3 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-tajawal"
+                      rows={2}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 mb-1">منصة التعلم / المصدر</label>
+                      <Input 
+                        value={newSource} 
+                        onChange={(e) => setNewSource(e.target.value)} 
+                        placeholder="يوتيوب / يوديمي / كتاب" 
+                        className="w-full text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 mb-1">رابط المصدر (إن وجد)</label>
+                      <Input 
+                        value={newSourceUrl} 
+                        onChange={(e) => setNewSourceUrl(e.target.value)} 
+                        placeholder="https://..." 
+                        className="w-full text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Anti-abandonment Fields */}
+                  <div className="p-4 bg-indigo-950/20 border border-indigo-500/10 rounded-2xl space-y-3">
+                    <h4 className="text-xs font-bold text-indigo-400 flex items-center gap-1">
+                      <Sparkles className="h-4 w-4" /> 
+                      آليات الـ ADHD لمكافحة هجر الكورسات:
+                    </h4>
+                    
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-300 mb-1">لماذا أبدأ هذا المسار الآن؟ (أهم دافع عاطفي)</label>
+                      <textarea
+                        value={newWhyStarted}
+                        onChange={(e) => setNewWhyStarted(e.target.value)}
+                        placeholder="مثال: حابب أتعلم علشان أعمل ألعابي الخاصة وأشعر بالفخر!"
+                        className="w-full bg-dark-bg border border-dark-border rounded-xl p-2.5 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-tajawal"
+                        rows={2}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-300 mb-1">الالتزام اليومي المقترح</label>
+                        <Input 
+                          value={newCommitment} 
+                          onChange={(e) => setNewCommitment(e.target.value)} 
+                          placeholder="مثال: 15 دقيقة فقط يومياً" 
+                          className="w-full text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-300 mb-1">عدد الدروس الكلي</label>
+                        <Input 
+                          type="number"
+                          value={newTotalLessons} 
+                          onChange={(e) => setNewTotalLessons(parseInt(e.target.value) || 10)} 
+                          className="w-full text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-3 border-t border-dark-border">
+                    <Button variant="secondary" onClick={() => setCreateModalOpen(false)}>إلغاء</Button>
+                    <Button variant="primary" onClick={handleCreateTrack}>حفظ المسار</Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 mb-1">رابط قائمة تشغيل يوتيوب (YouTube Playlist Link)</label>
+                    <Input 
+                      value={ytUrl} 
+                      onChange={(e) => setYtUrl(e.target.value)} 
+                      placeholder="https://www.youtube.com/playlist?list=PL..." 
+                      className="w-full text-xs font-mono ltr text-left"
+                    />
+                    <span className="text-[10px] text-gray-500 mt-1.5 block leading-relaxed font-tajawal">
+                      انسخ رابط قائمة التشغيل من يوتيوب وتأكد أنه يحتوي على الجزء <code className="text-indigo-400 font-mono">list=...</code>
+                    </span>
+                  </div>
+
+                  {/* Anti-abandonment Fields */}
+                  <div className="p-4 bg-indigo-950/20 border border-indigo-500/10 rounded-2xl space-y-3">
+                    <h4 className="text-xs font-bold text-indigo-400 flex items-center gap-1">
+                      <Sparkles className="h-4 w-4" /> 
+                      آليات الـ ADHD لمكافحة هجر الكورسات:
+                    </h4>
+                    
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-300 mb-1">لماذا أبدأ هذا المسار الآن؟ (أهم دافع عاطفي)</label>
+                      <textarea
+                        value={newWhyStarted}
+                        onChange={(e) => setNewWhyStarted(e.target.value)}
+                        placeholder="مثال: حابب أتعلم علشان أعمل ألعابي الخاصة وأشعر بالفخر!"
+                        className="w-full bg-dark-bg border border-dark-border rounded-xl p-2.5 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-tajawal"
+                        rows={2}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-300 mb-1">الالتزام اليومي المقترح</label>
+                      <Input 
+                        value={newCommitment} 
+                        onChange={(e) => setNewCommitment(e.target.value)} 
+                        placeholder="مثال: 15 دقيقة فقط يومياً" 
+                        className="w-full text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-3 border-t border-dark-border">
+                    <Button variant="secondary" onClick={() => setCreateModalOpen(false)}>إلغاء</Button>
+                    <Button 
+                      variant="primary" 
+                      onClick={handleImportYoutube}
+                      disabled={!ytUrl.trim()}
+                    >
+                      بدء الاستيراد الذكي ✨
+                    </Button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
       </Modal>
     </div>

@@ -120,6 +120,7 @@ declare global {
         deleteTrack: (id: number) => Promise<boolean>
         getLessons: (trackId: number) => Promise<LearningLesson[]>
         updateLesson: (id: number, lesson: Partial<LearningLesson>) => Promise<LearningLesson>
+        importYoutubePlaylist: (url: string, whyStarted: string, commitment: string) => Promise<{ trackId: number }>
       }
       learningMaterials: {
         getMaterials: (trackId?: number | null) => Promise<LearningMaterial[]>

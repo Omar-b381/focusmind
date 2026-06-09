@@ -87,6 +87,8 @@ export const api = {
     deleteTrack: (id: number) => ipcRenderer.invoke('learningTracks:deleteTrack', id),
     getLessons: (trackId: number) => ipcRenderer.invoke('learningTracks:getLessons', trackId),
     updateLesson: (id: number, lesson: any) => ipcRenderer.invoke('learningTracks:updateLesson', id, lesson),
+    importYoutubePlaylist: (url: string, whyStarted: string, commitment: string) =>
+      ipcRenderer.invoke('learningTracks:importYoutubePlaylist', url, whyStarted, commitment),
   },
   // Learning Materials
   learningMaterials: {

@@ -1,4 +1,5 @@
 import { ipcMain, Notification, dialog, BrowserWindow, app } from 'electron'
+import https from 'https'
 import { getDatabase, isFallbackDatabase } from '../database'
 import { getFallbackCollection, insertFallback, updateFallback, deleteFallback, initFallbackDatabase } from '../database/fallback'
 import { eq, and, sql } from 'drizzle-orm'
@@ -1086,6 +1087,285 @@ export function registerIPCHandlers(): void {
       }
       return updated
     }
+  })
+
+  function extractPlaylistId(urlStr: string): string | null {
+    try {
+      const reg = /[&?]list=([^&]+)/
+      const match = urlStr.match(reg)
+      return match ? match[1] : null
+    } catch {
+      return null
+    }
+  }
+
+  function scrapeYoutubePlaylist(playlistId: string): Promise<{ title: string; videos: { title: string; videoId: string; durationMinutes: number }[] }> {
+    return new Promise((resolve, reject) => {
+      const urlStr = `https://www.youtube.com/playlist?list=${playlistId}`
+      const options = {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      }
+
+      https.get(urlStr, options, (res) => {
+        let html = ''
+        res.on('data', (chunk) => { html += chunk })
+        res.on('end', () => {
+          try {
+            const regex = /ytInitialData\s*=\s*({.+?});/
+            const match = html.match(regex)
+            if (!match) {
+              return reject(new Error('Could not find playlist data on YouTube.'))
+            }
+
+            const json = JSON.parse(match[1])
+            
+            // Check for errors/alerts
+            if (json.alerts) {
+              const errAlert = json.alerts.find((a: any) => a.alertRenderer?.type === 'ERROR')
+              if (errAlert) {
+                const errText = errAlert.alertRenderer?.text?.runs?.[0]?.text || 'Playlist not found or private.'
+                return reject(new Error(errText))
+              }
+            }
+
+            const sidebar = json.sidebar?.playlistSidebarRenderer?.items?.[0]?.playlistSidebarPrimaryInfoRenderer || {}
+            const playlistTitle = sidebar.title?.runs?.[0]?.text || sidebar.title?.simpleText || 'YouTube Playlist'
+            
+            let contents: any[] = []
+            const sectionList = json.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents
+            if (sectionList && sectionList.length > 0) {
+              const itemSection = sectionList[0]?.itemSectionRenderer?.contents
+              if (itemSection && itemSection.length > 0) {
+                contents = itemSection[0]?.playlistVideoListRenderer?.contents || []
+              }
+            }
+
+            const videos: { title: string; videoId: string; durationMinutes: number }[] = []
+            for (const item of contents) {
+              const video = item.playlistVideoRenderer
+              if (!video) continue
+
+              const videoTitle = video.title?.runs?.[0]?.text || 'No Title'
+              const videoId = video.videoId
+              const lengthSeconds = parseInt(video.lengthSeconds) || 0
+              const durationMinutes = Math.round(lengthSeconds / 60) || 1
+
+              videos.push({
+                title: videoTitle,
+                videoId,
+                durationMinutes
+              })
+            }
+
+            resolve({
+              title: playlistTitle,
+              videos
+            })
+          } catch (err) {
+            reject(err)
+          }
+        })
+      }).on('error', (err) => {
+        reject(err)
+      })
+    })
+  }
+
+  ipcMain.handle('learningTracks:importYoutubePlaylist', async (_, urlStr, whyStarted, commitment) => {
+    const playlistId = extractPlaylistId(urlStr)
+    if (!playlistId) {
+      throw new Error('رابط يوتيوب غير صالح أو لا يحتوي على معرف قائمة التشغيل (list ID).')
+    }
+
+    const { title, videos } = await scrapeYoutubePlaylist(playlistId)
+    if (videos.length === 0) {
+      throw new Error('لم يتم العثور على أي فيديوهات في قائمة التشغيل هذه. قد تكون خاصة أو فارغة.')
+    }
+
+    // 1. Create track in DB
+    let trackId: number
+    const trackPayload = {
+      title,
+      emoji: '📺',
+      description: `مسار يوتيوب مستورد: ${title}`,
+      source: 'يوتيوب',
+      sourceUrl: urlStr,
+      totalLessons: videos.length,
+      completedLessons: 0,
+      currentLesson: 1,
+      status: 'active' as const,
+      currentStreakDays: 0,
+      longestStreakDays: 0,
+      totalStudyMinutes: 0,
+      xpEarned: 0,
+      whyStarted,
+      commitment,
+      pinchScore: 5
+    }
+
+    if (isFallbackDatabase()) {
+      const newTrack = insertFallback('learning_tracks', {
+        ...trackPayload,
+        createdAt: new Date().toISOString()
+      })
+      trackId = newTrack.id
+
+      // Seed lessons
+      videos.forEach((v, index) => {
+        insertFallback('learning_lessons', {
+          trackId,
+          order: index + 1,
+          title: v.title,
+          estimatedMinutes: v.durationMinutes,
+          status: 'pending',
+          notes: `https://youtube.com/watch?v=${v.videoId}`
+        })
+      })
+    } else {
+      const db = getDatabase()
+      const result = db.insert(schema.learningTracks).values({
+        ...trackPayload,
+        createdAt: new Date()
+      } as any).run()
+      trackId = Number(result.lastInsertRowid)
+
+      db.transaction((tx) => {
+        videos.forEach((v, index) => {
+          tx.insert(schema.learningLessons).values({
+            trackId,
+            order: index + 1,
+            title: v.title,
+            estimatedMinutes: v.durationMinutes,
+            status: 'pending',
+            notes: `https://youtube.com/watch?v=${v.videoId}`
+          } as any).run()
+        })
+      })
+    }
+
+    // 2. Generate AI Roadmap and 3D Concept map
+    const settings = getAppSettings()
+    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
+    let roadmapMarkdown = ''
+    let conceptMapJson = ''
+
+    if (hasAIKey) {
+      try {
+        const provider = getAIProvider({
+          aiProvider: settings.aiProvider || 'gemini',
+          aiModel: settings.aiModel || 'gemini-1.5-flash',
+          aiApiKey: settings.aiApiKey || '',
+          aiCustomEndpoint: settings.aiCustomEndpoint
+        })
+
+        const titlesList = videos.map((v, i) => `${i + 1}. ${v.title} (${v.durationMinutes} دقيقة)`).join('\n')
+        const prompt = `أنت خبير تعلم مخصص لعقول الـ ADHD. قمنا باستيراد قائمة تشغيل يوتيوب بعنوان "${title}" وتتكون من الدروس التالية:
+${titlesList}
+
+المطلوب منك هو:
+1. إنشاء خطة دراسية وخارطة طريق (Roadmap) تفصيلية بأسلوب الماركداون (Markdown). قسم الدروس إلى أبواب أو فصول منطقية، وقدم نصائح وإرشادات مخصصة للمصابين بـ ADHD حول كيفية دراستها وتجنب التشتت والملل، وتطبيقات عملية مقترحة.
+2. إنشاء خريطة مفاهيم ثلاثية الأبعاد (3D Concept Map) توضح الترابط والعلاقات بين الأبواب الرئيسية لهذه الدورة.
+
+يرجى إرجاع الإجابة بصيغة JSON فقط، بدون أي نصوص إضافية أو علامات كود (markdown fences). الهيكل المطلوب للـ JSON هو كالتالي:
+{
+  "roadmap": "الخارطة التفصيلية المكتوبة بالماركداون هنا...",
+  "conceptMap": {
+    "nodes": [
+      {"id": "1", "label": "اسم الكورس الرئيسي", "val": 20, "group": 0, "description": "وصف عام للكورس"},
+      {"id": "2", "label": "الباب الأول: ...", "val": 12, "group": 1, "description": "تفاصيل الباب الأول"},
+      {"id": "3", "label": "الباب الثاني: ...", "val": 12, "group": 2, "description": "تفاصيل الباب الثاني"}
+    ],
+    "links": [
+      {"source": "1", "target": "2"},
+      {"source": "1", "target": "3"}
+    ]
+  }
+}
+
+ملاحظات هامة:
+- تأكد من أن الروابط (links) تربط العقد الموجودة بالمعرفات (id) بدقة.
+- اجعل التسميات والخطة باللغة العربية، بأسلوب مشوق ومحفز ومناسب لعقول الـ ADHD.
+`
+
+        const response = await provider.sendMessage([
+          { role: 'user', content: prompt }
+        ])
+
+        let cleanJson = response.trim()
+        if (cleanJson.startsWith('```json')) cleanJson = cleanJson.substring(7)
+        if (cleanJson.startsWith('```')) cleanJson = cleanJson.substring(3)
+        if (cleanJson.endsWith('```')) cleanJson = cleanJson.substring(0, cleanJson.length - 3)
+        cleanJson = cleanJson.trim()
+
+        const parsed = JSON.parse(cleanJson)
+        roadmapMarkdown = parsed.roadmap
+        conceptMapJson = JSON.stringify(parsed.conceptMap)
+      } catch (err) {
+        console.error('AI Playlist Synthesis failed, falling back:', err)
+      }
+    }
+
+    // Fallback if AI fails or key is missing
+    if (!roadmapMarkdown || !conceptMapJson) {
+      roadmapMarkdown = `### 🗺️ خطة الدراسة المستوردة لقائمة: ${title}
+
+لقد قمنا باستيراد كورس يوتيوب بنجاح! إليك تقسيم الدروس المكتشفة ومقدار جلسات البومودورو المقترحة لكل درس:
+
+${videos.map((v, i) => `* **الدرس ${i + 1}:** ${v.title} (${v.durationMinutes} دقيقة) — يحتاج ${Math.ceil(v.durationMinutes / 25)} جلسة بومودورو ⏱️`).join('\n')}
+
+---
+**💡 نصائح للبدء السريع (مكافحة تشتت الـ ADHD):**
+1. اضغط على أيقونة **بومودورو** بجانب أي درس لبدء جلسة تركيز مركزة بمدة 25 دقيقة.
+2. حول العناوين الصعبة إلى **مهمة تطبيقية عملية** فوراً لتثبيت المفاهيم.
+3. لتوليد خطة دراسية وخريطة ذهنية متطورة بالذكاء الاصطناعي تفكك المفاهيم المعقدة، يرجى تفعيل مفتاح الـ API في الإعدادات.`
+
+      const nodes = [
+        { id: '1', label: title, val: 20, group: 0, description: 'كورس يوتيوب الرئيسي' }
+      ]
+      const links: any[] = []
+      // Let's create visual nodes for the first 5 videos
+      videos.slice(0, 5).forEach((v, index) => {
+        const nodeId = (index + 2).toString()
+        nodes.push({
+          id: nodeId,
+          label: `فيديو ${index + 1}: ${v.title.slice(0, 20)}...`,
+          val: 10,
+          group: index + 1,
+          description: v.title
+        })
+        links.push({
+          source: '1',
+          target: nodeId
+        })
+      })
+
+      conceptMapJson = JSON.stringify({ nodes, links })
+    }
+
+    // Save the roadmap as a summarized material linked to this track
+    const materialPayload = {
+      title: `خريطة طريق مسار: ${title}`,
+      fileType: 'text_input' as const,
+      content: urlStr,
+      filePath: null,
+      learningTrackId: trackId,
+      status: 'summarized' as const,
+      summary: roadmapMarkdown,
+      conceptMap: conceptMapJson,
+      createdAt: new Date().toISOString()
+    }
+
+    if (isFallbackDatabase()) {
+      insertFallback('learning_materials', materialPayload)
+    } else {
+      const db = getDatabase()
+      db.insert(schema.learningMaterials).values(materialPayload as any).run()
+    }
+
+    return { trackId }
   })
 
   // ==========================================
