@@ -9,18 +9,23 @@ import {
   useToggleHabitMutation,
   useHabitLogsQuery
 } from '../hooks/useHabits'
+import HabitGrid from '../components/habits/HabitGrid'
+import RewardCelebration from '../components/dopamine/RewardCelebration'
 
 export default function Habits() {
   const [newHabitName, setNewHabitName] = useState('')
   const [newHabitDescription, setNewHabitDescription] = useState('')
   const [newHabitEmoji, setNewHabitEmoji] = useState('✅')
   const [newHabitDopamine, setNewHabitDopamine] = useState(5)
+  const [celebrateTrigger, setCelebrateTrigger] = useState(false)
 
   // TanStack Query Hooks
   const { data: habits = [], isLoading, isError } = useHabitsQuery()
   
   const todayStr = new Date().toISOString().split('T')[0]
-  const { data: habitLogs = [] } = useHabitLogsQuery(todayStr, todayStr)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+  const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
+  const { data: habitLogs = [] } = useHabitLogsQuery(thirtyDaysAgoStr, todayStr)
 
   const createHabitMutation = useCreateHabitMutation()
   const toggleHabitMutation = useToggleHabitMutation()
@@ -49,15 +54,25 @@ export default function Habits() {
       habitId,
       date: todayStr,
       completed: !isCompleted
+    }, {
+      onSuccess: () => {
+        if (!isCompleted) {
+          setCelebrateTrigger(true)
+        }
+      }
     })
   }
 
   const isCompletedToday = (habitId: number) => {
-    return habitLogs.some((l) => l.habitId === habitId && l.completed)
+    return habitLogs.some((l) => l.habitId === habitId && l.completed && l.date === todayStr)
   }
 
   return (
     <div className="space-y-6 font-tajawal text-right">
+      <RewardCelebration
+        trigger={celebrateTrigger}
+        onComplete={() => setCelebrateTrigger(false)}
+      />
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold text-white font-cairo">بناء العادات</h2>
       </div>
@@ -165,6 +180,11 @@ export default function Habits() {
                       {habit.description || 'لا يوجد وصف لهذه العادة.'}
                     </p>
                   </div>
+                </div>
+
+                {/* Habits Heatmap */}
+                <div className="mt-4">
+                  <HabitGrid logs={habitLogs.filter((l) => l.habitId === habit.id)} daysCount={14} />
                 </div>
 
                 {/* Streak metrics */}

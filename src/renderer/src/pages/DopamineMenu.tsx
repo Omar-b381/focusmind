@@ -9,9 +9,11 @@ import {
   useCreateDopamineActivityMutation,
   useUseDopamineActivityMutation
 } from '../hooks/useDopamine'
+import RewardCelebration from '../components/dopamine/RewardCelebration'
 
 export default function DopamineMenu() {
   const [activeCategory, setActiveCategory] = useState<'all' | 'movement' | 'sensory' | 'creative' | 'nature' | 'social' | 'achievement'>('all')
+  const [celebrateTrigger, setCelebrateTrigger] = useState(false)
 
   // Create Activity Modal states
   const [isAddOpen, setAddOpen] = useState(false)
@@ -45,7 +47,11 @@ export default function DopamineMenu() {
   }
 
   const handleUseActivity = (id: number) => {
-    useActivityMutation.mutate(id)
+    useActivityMutation.mutate(id, {
+      onSuccess: () => {
+        setCelebrateTrigger(true)
+      }
+    })
   }
 
   const filteredActivities = activities.filter((act) => {
@@ -55,6 +61,10 @@ export default function DopamineMenu() {
 
   return (
     <div className="space-y-6 font-tajawal text-right">
+      <RewardCelebration
+        trigger={celebrateTrigger}
+        onComplete={() => setCelebrateTrigger(false)}
+      />
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-xl font-bold text-white font-cairo">قائمة الدوبامين الذكية (Dopamine Menu)</h2>

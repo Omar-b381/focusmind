@@ -3,8 +3,24 @@ import { getDatabase, isFallbackDatabase } from '../database'
 import { getFallbackCollection, insertFallback, updateFallback, deleteFallback } from '../database/fallback'
 import { eq, and } from 'drizzle-orm'
 import * as schema from '../database/schema'
+import { getAIProvider } from '../ai/manager'
+import { COACH_SYSTEM_PROMPT } from '../ai/prompts/coach'
+import { getDailyPlannerPrompt } from '../ai/prompts/planner'
+import { getBreakdownPrompt } from '../ai/prompts/breakdown'
+import { getEveningReflectPrompt } from '../ai/prompts/reflect'
 
 export function registerIPCHandlers(): void {
+  function getAppSettings() {
+    const list = isFallbackDatabase() 
+      ? getFallbackCollection('settings')
+      : getDatabase().select().from(schema.settings).all()
+    const settingsObj: Record<string, string> = {}
+    list.forEach((s: any) => {
+      settingsObj[s.key] = s.value
+    })
+    return settingsObj
+  }
+
   // ==========================================
   // Tasks IPC Handlers
   // ==========================================
@@ -112,16 +128,53 @@ export function registerIPCHandlers(): void {
     return undone[0]
   })
 
-  ipcMain.handle('tasks:breakdownTask', async (_, _id) => {
-    // Generate AI Breakdown mock steps
-    return {
-      steps: [
-        { title: 'افتح اللابتوب وجهز بيئة العمل', done: false },
-        { title: 'اكتب الخطوط العريضة والمحاور الرئيسية', done: false },
-        { title: 'ركز لمدة 10 دقائق على الجزئية الأولى فقط', done: false },
-        { title: 'راجع النتيجة النهائية وعدل التنسيقات', done: false }
-      ]
+  ipcMain.handle('tasks:breakdownTask', async (_, id) => {
+    const db = getDatabase()
+    const task = isFallbackDatabase()
+      ? getFallbackCollection('tasks').find((t: any) => t.id === id)
+      : db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).get()
+
+    if (!task) return { steps: [] }
+
+    const settings = getAppSettings()
+    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
+
+    if (hasAIKey) {
+      try {
+        const provider = getAIProvider({
+          aiProvider: settings.aiProvider || 'gemini',
+          aiModel: settings.aiModel || 'gemini-1.5-flash',
+          aiApiKey: settings.aiApiKey || '',
+          aiCustomEndpoint: settings.aiCustomEndpoint
+        })
+
+        const prompt = getBreakdownPrompt(task.title, task.description || '')
+        const responseText = await provider.sendMessage([
+          { role: 'user', content: prompt }
+        ])
+
+        const cleanedJson = responseText.replace(/```json|```/g, '').trim()
+        const parsed = JSON.parse(cleanedJson)
+        if (parsed && Array.isArray(parsed.steps)) {
+          const stepsJson = JSON.stringify(parsed.steps)
+          if (isFallbackDatabase()) {
+            updateFallback('tasks', id, { aiBreakdown: stepsJson })
+          } else {
+            db.update(schema.tasks).set({ aiBreakdown: stepsJson, updatedAt: new Date() } as any).where(eq(schema.tasks.id, id)).run()
+          }
+          return { steps: parsed.steps }
+        }
+      } catch (err) {
+        console.error('AI Breakdown failed, falling back to mock:', err)
+      }
     }
+
+    const mockSteps = [
+      { title: `جهز بيئة العمل للبدء في: ${task.title}`, done: false },
+      { title: 'ركز لمدة 10 دقائق فقط دون أي تشتيت', done: false },
+      { title: 'راجع عملك وخذ قسطاً من الراحة', done: false }
+    ]
+    return { steps: mockSteps }
   })
 
   // ==========================================
@@ -470,7 +523,38 @@ export function registerIPCHandlers(): void {
   // AI Coach Handlers
   // ==========================================
   ipcMain.handle('ai:sendChatMessage', async (_, _context, messages) => {
-    // ADHD Supportive, Empathetic Coach Replies
+    const settings = getAppSettings()
+    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
+
+    if (hasAIKey) {
+      try {
+        const provider = getAIProvider({
+          aiProvider: settings.aiProvider || 'gemini',
+          aiModel: settings.aiModel || 'gemini-1.5-flash',
+          aiApiKey: settings.aiApiKey || '',
+          aiCustomEndpoint: settings.aiCustomEndpoint
+        })
+
+        const fullMessages = [
+          { role: 'system' as const, content: COACH_SYSTEM_PROMPT },
+          ...messages.map((m: any) => ({ role: m.role as 'user' | 'assistant' | 'system', content: m.content }))
+        ]
+
+        const reply = await provider.sendMessage(fullMessages)
+        return {
+          content: reply,
+          role: 'assistant'
+        }
+      } catch (err: any) {
+        console.error('AI Chat request failed:', err)
+        return {
+          content: `عذراً، واجهت مشكلة في الاتصال بمزود الذكاء الاصطناعي: ${err.message || err}. يرجى التحقق من إعدادات الـ API والإنترنت.`,
+          role: 'assistant'
+        }
+      }
+    }
+
+    // ADHD Supportive, Empathetic Coach Replies (Local Mock fallback when no key is present)
     const lastUserMessage = messages[messages.length - 1]?.content || ''
     
     let reply = 'أنا هنا لمساعدتك يا عمر. عقل الـ ADHD إبداعي ومذهل، ولكنه يحتاج للتوجيه الهادئ والمنظم. قولي إيه اللي يدور ببالك دلوقتي؟'
@@ -489,13 +573,66 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('ai:generateDailyPlan', async (_, _energyLevel, _taskIds) => {
+  ipcMain.handle('ai:generateDailyPlan', async (_, energyLevel, taskIds) => {
+    const settings = getAppSettings()
+    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
+
+    if (hasAIKey && Array.isArray(taskIds) && taskIds.length > 0) {
+      try {
+        const db = getDatabase()
+        const allTasks = isFallbackDatabase()
+          ? getFallbackCollection('tasks')
+          : db.select().from(schema.tasks).all()
+
+        const selectedTasks = allTasks.filter((t: any) => taskIds.includes(t.id))
+
+        const provider = getAIProvider({
+          aiProvider: settings.aiProvider || 'gemini',
+          aiModel: settings.aiModel || 'gemini-1.5-flash',
+          aiApiKey: settings.aiApiKey || '',
+          aiCustomEndpoint: settings.aiCustomEndpoint
+        })
+
+        const prompt = getDailyPlannerPrompt(String(energyLevel), selectedTasks)
+        const responseText = await provider.sendMessage([
+          { role: 'user', content: prompt }
+        ])
+
+        return { plan: responseText }
+      } catch (err: any) {
+        console.error('AI generate plan failed:', err)
+      }
+    }
+
     return {
       plan: 'خطة اليوم المقترحة بناءً على طاقتك المتوسطة: إنجاز المهمة الرئيسية صباحاً ثم تصفح باقي المهام الخفيفة.'
     }
   })
 
-  ipcMain.handle('ai:reflectEvening', async (_, _notes) => {
+  ipcMain.handle('ai:reflectEvening', async (_, notes) => {
+    const settings = getAppSettings()
+    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
+
+    if (hasAIKey && notes) {
+      try {
+        const provider = getAIProvider({
+          aiProvider: settings.aiProvider || 'gemini',
+          aiModel: settings.aiModel || 'gemini-1.5-flash',
+          aiApiKey: settings.aiApiKey || '',
+          aiCustomEndpoint: settings.aiCustomEndpoint
+        })
+
+        const prompt = getEveningReflectPrompt(notes)
+        const responseText = await provider.sendMessage([
+          { role: 'user', content: prompt }
+        ])
+
+        return { reflection: responseText }
+      } catch (err) {
+        console.error('AI Evening reflection failed:', err)
+      }
+    }
+
     return {
       reflection: 'فخور بك وبكل مجهود بذلته اليوم يا عمر. المشاريع المعلقة تجارب وليست فشلاً.'
     }
