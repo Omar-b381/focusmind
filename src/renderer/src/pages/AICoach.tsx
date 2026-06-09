@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Bot, Send, Brain, AlertCircle, HelpCircle } from 'lucide-react'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
+import { useAIChatMutation } from '../hooks/useAICoach'
 
 interface Message {
   id: string
@@ -20,8 +21,9 @@ export default function AICoach() {
     }
   ])
   const [inputValue, setInputValue] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const chatMutation = useAIChatMutation()
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -32,7 +34,7 @@ export default function AICoach() {
   }, [messages])
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || isSubmitting) return
+    if (!inputValue.trim() || chatMutation.isPending) return
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -43,47 +45,34 @@ export default function AICoach() {
 
     setMessages((prev) => [...prev, userMessage])
     setInputValue('')
-    setIsSubmitting(true)
+
+    const apiMessages = [...messages, userMessage].map((msg) => ({
+      role: msg.role,
+      content: msg.content
+    }))
 
     try {
-      if (window.api && window.api.ai) {
-        // Send previous messages format to main process AI
-        const apiMessages = [...messages, userMessage].map((msg) => ({
-          role: msg.role,
-          content: msg.content
-        }))
-        const reply = await window.api.ai.sendChatMessage('coach', apiMessages)
-        
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: reply.content || 'عذراً يا عمر، لم أستطع فهم الرسالة بشكل كامل. أعد صياغتها من فضلك.',
-          timestamp: new Date()
-        }
-        setMessages((prev) => [...prev, assistantMessage])
-      } else {
-        // Fallback simulate response in browser
-        setTimeout(() => {
-          const assistantMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: 'هذا رد تجريبي. يرجى تفعيل مفاتيح الـ API في الإعدادات لتفعيل المحادثة الحقيقية مع المساعد الذكي.',
-            timestamp: new Date()
-          }
-          setMessages((prev) => [...prev, assistantMessage])
-        }, 1000)
+      const reply = await chatMutation.mutateAsync({
+        context: 'coach',
+        messages: apiMessages
+      })
+
+      const assistantMessage: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: reply.content || 'عذراً يا عمر، لم أستطع فهم الرسالة بشكل كامل. أعد صياغتها من فضلك.',
+        timestamp: new Date()
       }
+      setMessages((prev) => [...prev, assistantMessage])
     } catch (err) {
       console.error('AI Chat Error:', err)
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: Date.now().toString(),
         role: 'assistant',
         content: 'حدث خطأ أثناء الاتصال بمزود الذكاء الاصطناعي. يرجى التحقق من مفتاح الـ API والاتصال بالإنترنت في صفحة الإعدادات.',
         timestamp: new Date()
       }
       setMessages((prev) => [...prev, errorMessage])
-    } finally {
-      setIsSubmitting(false)
     }
   }
 
@@ -110,7 +99,7 @@ export default function AICoach() {
         {/* Chat Bubbles (Left 3 cols) */}
         <Card className="lg:col-span-3 flex flex-col h-full bg-[#1a1d27]/70 border-[#2d3252]/50 relative overflow-hidden">
           {/* Scrollable message viewport */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide flex flex-col">
             {messages.map((msg) => {
               const isAssistant = msg.role === 'assistant'
               return (
@@ -137,6 +126,18 @@ export default function AICoach() {
                 </div>
               )
             })}
+            {chatMutation.isPending && (
+              <div className="flex gap-3 max-w-[80%] self-start">
+                <div className="h-8 w-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                  <Bot className="h-4 w-4" />
+                </div>
+                <div className="p-3.5 rounded-2xl text-sm leading-relaxed bg-[#21253a] text-gray-400 border border-[#2d3252]/40 rounded-tr-none flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0.2s]" />
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0.4s]" />
+                </div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
@@ -149,12 +150,12 @@ export default function AICoach() {
               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
               placeholder="اكتب رسالتك للمدرب هنا..."
               className="flex-1 h-11 px-4 rounded-xl border border-[#2d3252] bg-[#1a1d27] text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/25 transition-all text-sm outline-none"
-              disabled={isSubmitting}
+              disabled={chatMutation.isPending}
             />
             <Button
               variant="primary"
               onClick={handleSendMessage}
-              isLoading={isSubmitting}
+              isLoading={chatMutation.isPending}
               disabled={!inputValue.trim()}
               className="h-11 px-5"
               icon={<Send className="h-4 w-4 rotate-180" />}
