@@ -95,37 +95,42 @@ export default function LearningTracks() {
 
   return (
     <div className="p-6 space-y-6 h-full overflow-y-auto">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-extrabold text-white font-cairo">مسارات التعلم 📚</h1>
-          <p className="text-gray-400 text-sm mt-1">تغلب على شلل البدء وحافظ على استمرارية كورساتك دون تشتت</p>
-        </div>
-        <Button 
-          variant="primary" 
-          icon={<Plus className="h-4 w-4" />} 
-          onClick={() => setCreateModalOpen(true)}
-        >
-          إنشاء مسار جديد
-        </Button>
-      </div>
+      {selectedTrack ? (
+        <TrackDetails track={selectedTrack} onBack={() => setSelectedTrackId(null)} />
+      ) : (
+        <>
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-extrabold text-white font-cairo">مسارات التعلم 📚</h1>
+              <p className="text-gray-400 text-sm mt-1">تغلب على شلل البدء وحافظ على استمرارية كورساتك دون تشتت</p>
+            </div>
+            <Button 
+              variant="primary" 
+              icon={<Plus className="h-4 w-4" />} 
+              onClick={() => setCreateModalOpen(true)}
+            >
+              إنشاء مسار جديد
+            </Button>
+          </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* Tracks List */}
-        <div className="lg:col-span-1 space-y-4">
-          <h2 className="text-lg font-bold text-gray-200 font-cairo">المسارات الحالية</h2>
-          
           {isLoading ? (
-            <div className="text-center py-8 text-gray-400">جاري تحميل المسارات...</div>
+            <div className="text-center py-12 text-gray-400 font-tajawal">جاري تحميل المسارات...</div>
           ) : !tracks || tracks.length === 0 ? (
-            <Card className="glass p-6 text-center text-gray-400 space-y-2">
-              <BookOpen className="h-12 w-12 text-indigo-400/50 mx-auto" />
-              <p>لا يوجد أي مسارات تعلم حتى الآن.</p>
-              <p className="text-xs">ابدأ بإضافة كورس، كتاب، أو قائمة تشغيل تريد تعلمها خطوة بخطوة.</p>
+            <Card className="glass p-12 text-center text-gray-400 space-y-4 border-dashed border-dark-border flex flex-col items-center justify-center max-w-xl mx-auto mt-8">
+              <BookOpen className="h-16 w-16 text-indigo-500/40 animate-pulse" />
+              <h3 className="text-lg font-bold text-white font-cairo">لا توجد مسارات تعلم حتى الآن</h3>
+              <p className="text-sm">ابدأ بإضافة كورس، كتاب، أو قائمة تشغيل تريد تعلمها خطوة بخطوة.</p>
+              <Button 
+                variant="primary" 
+                icon={<Plus className="h-4 w-4" />} 
+                onClick={() => setCreateModalOpen(true)}
+              >
+                إنشاء أول مسار
+              </Button>
             </Card>
           ) : (
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {tracks.map((track) => {
-                const isSelected = track.id === selectedTrackId
                 const progressPct = track.totalLessons > 0 
                   ? Math.round((track.completedLessons / track.totalLessons) * 100)
                   : 0
@@ -133,46 +138,66 @@ export default function LearningTracks() {
                 return (
                   <motion.div
                     key={track.id}
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.99 }}
+                    whileHover={{ scale: 1.02, y: -4 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="h-full"
                   >
                     <Card 
-                      className={`glass p-4 cursor-pointer transition-all duration-200 border ${
-                        isSelected 
-                          ? 'border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/5' 
-                          : 'border-dark-border hover:border-gray-700'
-                      }`}
+                      className="glass p-6 cursor-pointer transition-all duration-300 border border-dark-border hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/10 flex flex-col justify-between h-full"
                       onClick={() => setSelectedTrackId(track.id)}
                     >
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-3">
-                          <span className="text-2xl p-2 bg-dark-surface rounded-xl border border-dark-border">
+                      <div>
+                        <div className="flex justify-between items-start">
+                          <span className="text-3xl p-3 bg-dark-surface rounded-2xl border border-dark-border shadow-inner">
                             {track.emoji || '📚'}
                           </span>
-                          <div>
-                            <h3 className="font-bold text-white font-cairo text-sm line-clamp-1">{track.title}</h3>
-                            <p className="text-xs text-gray-400 mt-0.5">{track.source || 'مصدر محلي'}</p>
-                          </div>
+                          <button 
+                            onClick={(e) => handleDeleteTrack(track.id, e)}
+                            className="p-2 hover:bg-red-500/20 rounded-xl text-gray-400 hover:text-red-400 transition-colors"
+                            title="حذف المسار"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </div>
-                        <button 
-                          onClick={(e) => handleDeleteTrack(track.id, e)}
-                          className="p-1 hover:bg-red-500/20 rounded text-gray-400 hover:text-red-400 transition"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+
+                        <div className="mt-4 space-y-2">
+                          <h3 className="font-bold text-white font-cairo text-lg hover:text-indigo-400 transition-colors line-clamp-1">{track.title}</h3>
+                          <span className="text-xs text-indigo-400 font-medium font-cairo bg-indigo-500/10 px-2.5 py-1 rounded-md inline-block">
+                            {track.source || 'مصدر محلي'}
+                          </span>
+                          {track.description && (
+                            <p className="text-xs text-gray-400 line-clamp-2 mt-1 leading-relaxed font-tajawal">
+                              {track.description}
+                            </p>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Progress bar */}
-                      <div className="mt-4 space-y-1">
-                        <div className="flex justify-between text-xs font-medium text-gray-400 font-cairo">
-                          <span>التقدم: {track.completedLessons}/{track.totalLessons} درس</span>
-                          <span>{progressPct}%</span>
+                      <div className="mt-6 space-y-4">
+                        {/* Stats Row */}
+                        <div className="flex items-center justify-between text-xs text-gray-400 border-t border-dark-border/50 pt-3">
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5 text-indigo-400" />
+                            {track.totalStudyMinutes || 0} دقيقة
+                          </span>
+                          <span className="flex items-center gap-1 font-bold text-indigo-400">
+                            <Award className="h-3.5 w-3.5 text-indigo-400" />
+                            +{track.xpEarned || 0} XP
+                          </span>
                         </div>
-                        <div className="w-full h-1.5 bg-dark-surface rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500" 
-                            style={{ width: `${progressPct}%` }}
-                          />
+
+                        {/* Progress Bar */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs font-semibold text-gray-300 font-cairo">
+                            <span>التقدم: {track.completedLessons}/{track.totalLessons} درس</span>
+                            <span className="text-indigo-400">{progressPct}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-dark-surface rounded-full overflow-hidden border border-dark-border/30">
+                            <div 
+                              className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500" 
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
                         </div>
                       </div>
                     </Card>
@@ -181,21 +206,8 @@ export default function LearningTracks() {
               })}
             </div>
           )}
-        </div>
-
-        {/* Detailed View / Lessons */}
-        <div className="lg:col-span-2">
-          {selectedTrack ? (
-            <TrackDetails track={selectedTrack} />
-          ) : (
-            <Card className="glass p-12 text-center text-gray-400 border-dashed border-dark-border flex flex-col items-center justify-center space-y-3 h-[400px]">
-              <Compass className="h-16 w-16 text-indigo-500/40 animate-pulse" />
-              <h3 className="text-lg font-bold text-white font-cairo">اختر مساراً تعليمياً لتفاصيله</h3>
-              <p className="max-w-md text-sm">بمجرد اختيارك للمسار، ستتمكن من مراجعة الدروس الفردية، وتوثيق أهدافك المحفزة، ومتابعة التقدم خطوة بخطوة.</p>
-            </Card>
-          )}
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Create Modal */}
       <Modal 
@@ -308,7 +320,7 @@ export default function LearningTracks() {
   )
 }
 
-function TrackDetails({ track }: { track: any }) {
+function TrackDetails({ track, onBack }: { track: any; onBack: () => void }) {
   const { data: lessons, isLoading } = useLessonsQuery(track.id)
   const { data: tasks = [] } = useTasksQuery()
   
@@ -363,7 +375,12 @@ function TrackDetails({ track }: { track: any }) {
       onSuccess: () => {
         // Update track progress
         const completedCount = isDone ? Math.max(0, track.completedLessons - 1) : track.completedLessons + 1
-        const updates: any = { completedLessons: completedCount }
+        const updates: any = { 
+          completedLessons: completedCount,
+          xpEarned: isDone 
+            ? Math.max(0, (track.xpEarned || 0) - 15) 
+            : (track.xpEarned || 0) + 15
+        }
         
         // If we completed a lesson, move to next lesson
         if (!isDone && track.currentLesson === lesson.order && track.currentLesson < track.totalLessons) {
@@ -482,21 +499,23 @@ function TrackDetails({ track }: { track: any }) {
   return (
     <Card className="glass p-6 space-y-6">
       {/* Track Header Details */}
-      <div className="flex justify-between items-start border-b border-dark-border pb-6">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-3xl">{track.emoji}</span>
-            <h2 className="text-2xl font-bold text-white font-cairo">{track.title}</h2>
+      <div className="flex flex-col md:flex-row justify-between items-start gap-4 border-b border-dark-border pb-6">
+        <div className="space-y-2 max-w-3xl">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl p-2 bg-dark-surface rounded-2xl border border-dark-border shadow-inner">
+              {track.emoji}
+            </span>
+            <h2 className="text-2xl font-extrabold text-white font-cairo">{track.title}</h2>
           </div>
-          {track.description && <p className="text-gray-300 text-sm leading-relaxed">{track.description}</p>}
+          {track.description && <p className="text-gray-300 text-sm leading-relaxed font-tajawal">{track.description}</p>}
           
-          <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400 mt-2 font-cairo">
-            <span className="flex items-center gap-1 bg-dark-surface px-3 py-1 rounded-full border border-dark-border">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400 mt-2 font-cairo">
+            <span className="flex items-center gap-1.5 bg-dark-surface px-3 py-1.5 rounded-xl border border-dark-border">
               <Clock className="h-3.5 w-3.5 text-indigo-400" />
               الالتزام: {track.commitment || 'غير محدد'}
             </span>
             {track.source && (
-              <span className="flex items-center gap-1 bg-dark-surface px-3 py-1 rounded-full border border-dark-border">
+              <span className="flex items-center gap-1.5 bg-dark-surface px-3 py-1.5 rounded-xl border border-dark-border">
                 <Compass className="h-3.5 w-3.5 text-indigo-400" />
                 المصدر: {track.source}
               </span>
@@ -506,7 +525,7 @@ function TrackDetails({ track }: { track: any }) {
                 href={track.sourceUrl} 
                 target="_blank" 
                 rel="noreferrer"
-                className="flex items-center gap-1 bg-indigo-500/10 text-indigo-300 hover:text-indigo-200 px-3 py-1 rounded-full border border-indigo-500/20 transition"
+                className="flex items-center gap-1.5 bg-indigo-500/10 text-indigo-300 hover:text-indigo-200 px-3 py-1.5 rounded-xl border border-indigo-500/20 transition-all"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 رابط الكورس
@@ -514,6 +533,15 @@ function TrackDetails({ track }: { track: any }) {
             )}
           </div>
         </div>
+
+        {/* Back button */}
+        <Button
+          variant="secondary"
+          onClick={onBack}
+          className="h-10 px-4 text-xs font-bold font-cairo gap-1.5 border border-dark-border hover:bg-dark-hover"
+        >
+          <span>← العودة إلى قائمة المسارات</span>
+        </Button>
       </div>
 
       {/* Why Started Reminder */}
@@ -527,15 +555,15 @@ function TrackDetails({ track }: { track: any }) {
         </div>
       )}
 
-      {/* Bookmark context placeholder */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="bg-dark-surface p-4 border border-dark-border space-y-3">
+      {/* Bookmark context placeholder & Study Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="bg-dark-surface/50 p-5 border border-dark-border rounded-2xl space-y-3 shadow-inner">
           <div className="flex items-center gap-2 text-white font-cairo text-sm font-bold">
             <Clock className="h-4 w-4 text-indigo-400" />
             أين توقفت آخر مرة؟ (Context Bookmark)
           </div>
-          <p className="text-xs text-gray-400 leading-relaxed">اكتب رقم الدقيقة أو اسم الملف لتستأنف العمل بنصف الجهد العقلي.</p>
-          <div className="flex gap-2">
+          <p className="text-xs text-gray-400 leading-relaxed font-tajawal">اكتب رقم الدقيقة أو اسم الملف لتستأنف العمل بنصف الجهد العقلي.</p>
+          <div className="flex gap-2.5">
             <Input 
               value={bookmark} 
               onChange={(e) => setBookmark(e.target.value)} 
@@ -547,6 +575,7 @@ function TrackDetails({ track }: { track: any }) {
               size="sm"
               onClick={handleSaveBookmark}
               isLoading={isSavingBookmark}
+              className="px-4 font-cairo text-xs"
             >
               حفظ
             </Button>
@@ -554,27 +583,38 @@ function TrackDetails({ track }: { track: any }) {
         </Card>
 
         {/* Study Stats */}
-        <Card className="bg-dark-surface p-4 border border-dark-border flex justify-around items-center">
-          <div className="text-center space-y-1">
-            <Clock className="h-6 w-6 text-indigo-400 mx-auto" />
+        <Card className="bg-dark-surface/50 p-5 border border-dark-border rounded-2xl flex justify-around items-center shadow-inner relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full filter blur-xl" />
+          <div className="absolute bottom-0 left-0 w-24 h-24 bg-purple-500/5 rounded-full filter blur-xl" />
+
+          <div className="text-center space-y-1 z-10">
+            <div className="p-2.5 bg-indigo-500/10 rounded-xl inline-block border border-indigo-500/20 mb-1">
+              <Clock className="h-6 w-6 text-indigo-400" />
+            </div>
             <div className="text-xs text-gray-400 font-cairo">وقت الدراسة الكلي</div>
-            <div className="text-lg font-bold text-white font-mono">{track.totalStudyMinutes || 0} د</div>
+            <div className="text-2xl font-black text-white font-mono">{track.totalStudyMinutes || 0} د</div>
           </div>
-          <div className="h-8 w-[1px] bg-dark-border" />
-          <div className="text-center space-y-1">
-            <Award className="h-6 w-6 text-indigo-400 mx-auto" />
+          
+          <div className="h-12 w-[1px] bg-dark-border/80" />
+          
+          <div className="text-center space-y-1 z-10">
+            <div className="p-2.5 bg-purple-500/10 rounded-xl inline-block border border-purple-500/20 mb-1">
+              <Award className="h-6 w-6 text-purple-400" />
+            </div>
             <div className="text-xs text-gray-400 font-cairo">نقاط XP المكتسبة</div>
-            <div className="text-lg font-bold text-indigo-400 font-mono">+{track.xpEarned || 0} XP</div>
+            <div className="text-2xl font-black text-indigo-400 font-mono">+{track.xpEarned || 0} XP</div>
           </div>
         </Card>
       </div>
 
       {/* Section Switcher Tabs */}
-      <div className="flex border-b border-dark-border gap-4 pb-1">
+      <div className="flex bg-[#141621]/80 p-1.5 rounded-xl border border-dark-border max-w-md">
         <button
           onClick={() => setActiveSection('lessons_tasks')}
-          className={`pb-2.5 text-xs font-bold border-b-2 transition-all font-cairo flex items-center gap-1.5 ${
-            activeSection === 'lessons_tasks' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-gray-400'
+          className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 font-cairo flex items-center justify-center gap-2 ${
+            activeSection === 'lessons_tasks' 
+              ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' 
+              : 'text-gray-400 hover:text-gray-200'
           }`}
         >
           <span>📖</span>
@@ -582,8 +622,10 @@ function TrackDetails({ track }: { track: any }) {
         </button>
         <button
           onClick={() => setActiveSection('vault')}
-          className={`pb-2.5 text-xs font-bold border-b-2 transition-all font-cairo flex items-center gap-1.5 ${
-            activeSection === 'vault' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-gray-400'
+          className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 font-cairo flex items-center justify-center gap-2 ${
+            activeSection === 'vault' 
+              ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' 
+              : 'text-gray-400 hover:text-gray-200'
           }`}
         >
           <span>📁</span>
@@ -604,7 +646,7 @@ function TrackDetails({ track }: { track: any }) {
                 لا توجد دروس مخصصة. سيتم إنشاء الدروس تلقائياً بناءً على عدد دروس المسار.
               </div>
             ) : (
-              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
                 {lessons.map((lesson) => {
                   const isDone = lesson.status === 'done'
                   const isCurrent = track.currentLesson === lesson.order
@@ -684,7 +726,7 @@ function TrackDetails({ track }: { track: any }) {
           <div className="space-y-4 flex flex-col h-full">
             <h3 className="text-sm font-bold text-gray-200 font-cairo">المهام الدراسية والتطبيق 🎯</h3>
             
-            <div className="space-y-2 flex-1 max-h-[240px] overflow-y-auto pr-1">
+            <div className="space-y-2 flex-1 max-h-[440px] overflow-y-auto pr-1">
               {trackTasks.map((task) => {
                 const isDone = task.status === 'done'
                 
@@ -781,7 +823,7 @@ function TrackDetails({ track }: { track: any }) {
               </Button>
             </div>
 
-            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
               {materials.map((mat) => {
                 const isSelected = mat.id === selectedMaterialId
                 const typeIcon = mat.fileType === 'link' ? <LinkIcon className="h-4 w-4 text-indigo-400" /> : <FileText className="h-4 w-4 text-indigo-400" />
@@ -913,7 +955,7 @@ function TrackDetails({ track }: { track: any }) {
                     {selectedMaterial.summary && (
                       <div className="space-y-2">
                         <h5 className="text-[10px] font-bold text-indigo-300 font-cairo">الملخص الكتابي الميسر 📝</h5>
-                        <div className="p-3.5 bg-[#141621]/45 border border-[#2d3252]/30 rounded-xl overflow-y-auto max-h-[200px]">
+                        <div className="p-3.5 bg-[#141621]/45 border border-[#2d3252]/30 rounded-xl overflow-y-auto max-h-[400px]">
                           <ReactMarkdown className="text-xs leading-relaxed space-y-2 text-gray-300 font-tajawal select-text text-right prose prose-invert">
                             {selectedMaterial.summary}
                           </ReactMarkdown>

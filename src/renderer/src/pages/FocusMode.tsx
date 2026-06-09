@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useFocusStore, TimerType } from '../stores/focus.store'
 import { useAppStore } from '../stores/app.store'
 import { formatTimer } from '../lib/formatters'
@@ -9,6 +9,7 @@ import { CircularProgress } from '../components/ui/Progress'
 import { useTasksQuery, useTaskQuery, useUpdateTaskMutation } from '../hooks/useTasks'
 import { useTracksQuery, useLessonsQuery, useUpdateLessonMutation } from '../hooks/useLearningTracks'
 import { useAddXPMutation } from '../hooks/useXP'
+import { useQueryClient } from '@tanstack/react-query'
 import Modal from '../components/ui/Modal'
 
 export default function FocusMode() {
@@ -49,6 +50,18 @@ export default function FocusMode() {
   const updateLessonMutation = useUpdateLessonMutation(storeLearningTrackId as number)
   const updateTaskMutation = useUpdateTaskMutation()
   const addXPMutation = useAddXPMutation()
+  const queryClient = useQueryClient()
+
+  // Refresh database stats in real-time when the focus timer finishes
+  useEffect(() => {
+    if (status === 'finished') {
+      queryClient.invalidateQueries({ queryKey: ['learning-tracks'] })
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['xp-ledger'] })
+    }
+  }, [status, queryClient])
+
 
   const timeRemaining = duration - elapsed
   const progressPercent = Math.min(100, Math.round((elapsed / duration) * 100))
