@@ -11,7 +11,10 @@ import {
   Bot, 
   BarChart3, 
   Settings,
-  Brain
+  Brain,
+  Layers,
+  GraduationCap,
+  Network
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { motion } from 'framer-motion'
@@ -30,6 +33,9 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'tasks', label: 'المهام اليومية', icon: CheckSquare },
   { id: 'projects', label: 'المشاريع', icon: FolderOpen },
   { id: 'learning', label: 'مسارات التعلم', icon: BookOpen },
+  { id: 'flashcards', label: 'بطاقات التكرار 🃏', icon: Layers },
+  { id: 'feynman', label: 'تقنية فاينمان 🎓', icon: GraduationCap },
+  { id: 'knowledgeMap', label: 'خريطة المعرفة 🗺️', icon: Network },
   { id: 'focus', label: 'جلسة تركيز', icon: Timer },
   { id: 'habits', label: 'بناء العادات', icon: CalendarRange },
   { id: 'dopamine', label: 'قائمة الدوبامين', icon: Sparkles },

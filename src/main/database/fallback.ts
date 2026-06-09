@@ -22,6 +22,14 @@ interface FallbackData {
   learning_tracks: any[]
   learning_lessons: any[]
   learning_materials: any[]
+  learning_paths: any[]
+  learning_modules: any[]
+  flashcard_decks: any[]
+  flashcards: any[]
+  fsrs_reviews: any[]
+  feynman_sessions: any[]
+  knowledge_nodes: any[]
+  learning_analytics: any[]
 }
 
 let dataFilePath: string
@@ -59,6 +67,18 @@ export function initFallbackDatabase(): void {
           dataCache.learning_materials = []
           changed = true
         }
+        // Check and extend for v3 learning tables
+        if (!dataCache.learning_paths) {
+          dataCache.learning_paths = []
+          dataCache.learning_modules = []
+          dataCache.flashcard_decks = []
+          dataCache.flashcards = []
+          dataCache.fsrs_reviews = []
+          dataCache.feynman_sessions = []
+          dataCache.knowledge_nodes = []
+          dataCache.learning_analytics = []
+          changed = true
+        }
         if (changed) saveData()
       }
       return
@@ -67,7 +87,7 @@ export function initFallbackDatabase(): void {
     }
   }
 
-  // Initial Seed Data for v2
+  // Initial Seed Data for v2 & v3
   dataCache = {
     settings: [],
     tasks: [],
@@ -87,7 +107,15 @@ export function initFallbackDatabase(): void {
     user_profile: getInitialProfile(),
     learning_tracks: [],
     learning_lessons: [],
-    learning_materials: []
+    learning_materials: [],
+    learning_paths: [],
+    learning_modules: [],
+    flashcard_decks: [],
+    flashcards: [],
+    fsrs_reviews: [],
+    feynman_sessions: [],
+    knowledge_nodes: [],
+    learning_analytics: []
   }
   saveData()
 }
@@ -205,3 +233,10 @@ function getInitialAchievements() {
     { id: 22, key: 'rsd_survivor', name: 'شجاعة المحاولة', nameAr: 'شجاعة المحاولة', descriptionAr: 'تجاوزت انتكاسة وعدت للتركيز من جديد', emoji: '💙', category: 'courage', xpReward: 100, rarity: 'special', isUnlocked: false, unlockedAt: null, isHidden: false }
   ]
 }
+
+export function deleteFallbackModulesForPath(pathId: number): void {
+  if (!dataCache) initFallbackDatabase()
+  dataCache!.learning_modules = (dataCache!.learning_modules || []).filter((m: any) => m.pathId !== pathId)
+  saveData()
+}
+

@@ -12,6 +12,10 @@ export type ActiveTab =
   | 'settings'
   | 'learning'
   | 'achievements'
+  | 'flashcards'
+  | 'flashcard-review'
+  | 'feynman'
+  | 'knowledgeMap'
 
 interface AppState {
   activeTab: ActiveTab

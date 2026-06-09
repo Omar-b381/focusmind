@@ -1,7 +1,7 @@
 import { ipcMain, Notification, dialog, BrowserWindow, app } from 'electron'
 import https from 'https'
 import { getDatabase, isFallbackDatabase } from '../database'
-import { getFallbackCollection, insertFallback, updateFallback, deleteFallback, initFallbackDatabase } from '../database/fallback'
+import { getFallbackCollection, insertFallback, updateFallback, deleteFallback, initFallbackDatabase, deleteFallbackModulesForPath } from '../database/fallback'
 import { eq, and, sql } from 'drizzle-orm'
 import * as schema from '../database/schema'
 import { getAIProvider } from '../ai/manager'
@@ -9,6 +9,10 @@ import { COACH_SYSTEM_PROMPT } from '../ai/prompts/coach'
 import { getDailyPlannerPrompt } from '../ai/prompts/planner'
 import { getBreakdownPrompt } from '../ai/prompts/breakdown'
 import { getEveningReflectPrompt } from '../ai/prompts/reflect'
+import { buildPathGeneratorPrompt } from '../ai/prompts/path-generator'
+import { buildFlashcardGeneratorPrompt } from '../ai/prompts/flashcard-generator'
+import { buildFeynmanEvaluatorPrompt } from '../ai/prompts/feynman-evaluator'
+import { FSRSService, FSRSResult } from '../services/fsrs.service'
 
 export function registerIPCHandlers(): void {
   function getAppSettings() {
@@ -312,12 +316,12 @@ export function registerIPCHandlers(): void {
           }
         }
 
-        // 1b. Resolve lesson relations if present
+        // 1b. Resolve module relations if present
         if (lessonId) {
-          const lesson = getFallbackCollection('learning_lessons').find((l: any) => l.id === lessonId)
+          const lesson = getFallbackCollection('learning_modules').find((l: any) => l.id === lessonId)
           if (lesson) {
-            if (!learningTrackId) learningTrackId = lesson.trackId
-            updateFallback('learning_lessons', lessonId, {
+            if (!learningTrackId) learningTrackId = lesson.pathId
+            updateFallback('learning_modules', lessonId, {
               actualMinutes: (lesson.actualMinutes || 0) + actualMinutes
             })
           }
@@ -333,12 +337,12 @@ export function registerIPCHandlers(): void {
           }
         }
 
-        // 3. Update learning track minutes & XP
+        // 3. Update learning path minutes & XP
         const xpToEarn = Math.round(actualMinutes * 0.8) || 1
         if (learningTrackId) {
-          const track = getFallbackCollection('learning_tracks').find((t: any) => t.id === learningTrackId)
+          const track = getFallbackCollection('learning_paths').find((t: any) => t.id === learningTrackId)
           if (track) {
-            updateFallback('learning_tracks', learningTrackId, {
+            updateFallback('learning_paths', learningTrackId, {
               totalStudyMinutes: (track.totalStudyMinutes || 0) + actualMinutes,
               xpEarned: (track.xpEarned || 0) + xpToEarn
             })
@@ -383,14 +387,14 @@ export function registerIPCHandlers(): void {
           }
         }
 
-        // 1b. Resolve lesson relations if present
+        // 1b. Resolve module relations if present
         if (lessonId) {
-          const lesson = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.id, lessonId)).get()
+          const lesson = db.select().from(schema.learningModules).where(eq(schema.learningModules.id, lessonId)).get()
           if (lesson) {
-            if (!learningTrackId) learningTrackId = lesson.trackId
-            db.update(schema.learningLessons).set({
+            if (!learningTrackId) learningTrackId = lesson.pathId
+            db.update(schema.learningModules).set({
               actualMinutes: (lesson.actualMinutes || 0) + actualMinutes
-            } as any).where(eq(schema.learningLessons.id, lessonId)).run()
+            } as any).where(eq(schema.learningModules.id, lessonId)).run()
           }
         }
 
@@ -405,15 +409,15 @@ export function registerIPCHandlers(): void {
           }
         }
 
-        // 3. Update learning track minutes & XP
+        // 3. Update learning path minutes & XP
         const xpToEarn = Math.round(actualMinutes * 0.8) || 1
         if (learningTrackId) {
-          const track = db.select().from(schema.learningTracks).where(eq(schema.learningTracks.id, learningTrackId)).get()
+          const track = db.select().from(schema.learningPaths).where(eq(schema.learningPaths.id, learningTrackId)).get()
           if (track) {
-            db.update(schema.learningTracks).set({
+            db.update(schema.learningPaths).set({
               totalStudyMinutes: (track.totalStudyMinutes || 0) + actualMinutes,
               xpEarned: (track.xpEarned || 0) + xpToEarn
-            } as any).where(eq(schema.learningTracks.id, learningTrackId)).run()
+            } as any).where(eq(schema.learningPaths.id, learningTrackId)).run()
           }
         }
 
@@ -957,201 +961,202 @@ export function registerIPCHandlers(): void {
   // ==========================================
   // Learning Tracks Handlers
   // ==========================================
-  ipcMain.handle('learningTracks:getTracks', async () => {
+  // ==========================================
+  // Learning Paths IPC Handlers (v3)
+  // ==========================================
+  ipcMain.handle('learningPaths:getPaths', async () => {
     if (isFallbackDatabase()) {
-      return getFallbackCollection('learning_tracks')
+      return getFallbackCollection('learning_paths')
     } else {
-      return getDatabase().select().from(schema.learningTracks).all()
+      return getDatabase().select().from(schema.learningPaths).all()
     }
   })
 
-  ipcMain.handle('learningTracks:getTrackById', async (_, id) => {
+  ipcMain.handle('learningPaths:getPathById', async (_, id) => {
     if (isFallbackDatabase()) {
-      return getFallbackCollection('learning_tracks').find((t: any) => t.id === id)
+      return getFallbackCollection('learning_paths').find((p: any) => p.id === id)
     } else {
-      return getDatabase().select().from(schema.learningTracks).where(eq(schema.learningTracks.id, id)).get()
+      return getDatabase().select().from(schema.learningPaths).where(eq(schema.learningPaths.id, id)).get()
     }
   })
 
-  ipcMain.handle('learningTracks:createTrack', async (_, track) => {
+  ipcMain.handle('learningPaths:createPath', async (_, path) => {
     if (isFallbackDatabase()) {
-      const newTrack = insertFallback('learning_tracks', {
-        ...track,
-        totalLessons: track.totalLessons || 1,
-        completedLessons: 0,
-        currentLesson: 1,
+      const newPath = insertFallback('learning_paths', {
+        ...path,
+        totalModules: path.totalModules || 1,
+        completedModules: 0,
         status: 'active',
         currentStreakDays: 0,
         longestStreakDays: 0,
         totalStudyMinutes: 0,
         xpEarned: 0,
-        pinchScore: track.pinchScore || 5
+        pinchScore: path.pinchScore || 5
       })
-      // Seed initial lessons
-      for (let i = 1; i <= (track.totalLessons || 1); i++) {
-        insertFallback('learning_lessons', {
-          trackId: newTrack.id,
+      // Seed initial modules
+      for (let i = 1; i <= (path.totalModules || 1); i++) {
+        insertFallback('learning_modules', {
+          pathId: newPath.id,
           order: i,
-          title: `الدرس ${i}`,
+          title: `الوحدة ${i}`,
           estimatedMinutes: 20,
-          status: 'pending'
+          status: 'pending',
+          type: 'lesson'
         })
       }
-      return newTrack
+      return newPath
     } else {
       const db = getDatabase()
-      const result = db.insert(schema.learningTracks).values({
-        ...track,
+      const result = db.insert(schema.learningPaths).values({
+        ...path,
         createdAt: new Date()
       } as any).run()
-      const trackId = Number(result.lastInsertRowid)
+      const pathId = Number(result.lastInsertRowid)
       
-      // Seed initial lessons in transaction
+      // Seed initial modules in transaction
       db.transaction((tx) => {
-        for (let i = 1; i <= (track.totalLessons || 1); i++) {
-          tx.insert(schema.learningLessons).values({
-            trackId,
+        for (let i = 1; i <= (path.totalModules || 1); i++) {
+          tx.insert(schema.learningModules).values({
+            pathId,
             order: i,
-            title: `الدرس ${i}`,
+            title: `الوحدة ${i}`,
             estimatedMinutes: 20,
-            status: 'pending'
+            status: 'pending',
+            type: 'lesson'
           } as any).run()
         }
       })
-      return db.select().from(schema.learningTracks).where(eq(schema.learningTracks.id, trackId)).get()
+      return db.select().from(schema.learningPaths).where(eq(schema.learningPaths.id, pathId)).get()
     }
   })
 
-  ipcMain.handle('learningTracks:updateTrack', async (_, id, updates) => {
+  ipcMain.handle('learningPaths:updatePath', async (_, id, updates) => {
     if (isFallbackDatabase()) {
-      return updateFallback('learning_tracks', id, updates)
+      return updateFallback('learning_paths', id, updates)
     } else {
       const db = getDatabase()
-      db.update(schema.learningTracks).set({
+      db.update(schema.learningPaths).set({
         ...updates,
         updatedAt: new Date()
-      } as any).where(eq(schema.learningTracks.id, id)).run()
-      return db.select().from(schema.learningTracks).where(eq(schema.learningTracks.id, id)).get()
+      } as any).where(eq(schema.learningPaths.id, id)).run()
+      return db.select().from(schema.learningPaths).where(eq(schema.learningPaths.id, id)).get()
     }
   })
 
-  ipcMain.handle('learningTracks:deleteTrack', async (_, id) => {
+  ipcMain.handle('learningPaths:deletePath', async (_, id) => {
     if (isFallbackDatabase()) {
-      deleteFallback('learning_tracks', id)
+      deleteFallback('learning_paths', id)
+      deleteFallbackModulesForPath(id)
       return true
     } else {
       const db = getDatabase()
-      db.delete(schema.learningLessons).where(eq(schema.learningLessons.trackId, id)).run()
-      const result = db.delete(schema.learningTracks).where(eq(schema.learningTracks.id, id)).run()
+      db.delete(schema.learningModules).where(eq(schema.learningModules.pathId, id)).run()
+      const result = db.delete(schema.learningPaths).where(eq(schema.learningPaths.id, id)).run()
       return result.changes > 0
     }
   })
 
-  ipcMain.handle('learningTracks:getLessons', async (_, trackId) => {
+  ipcMain.handle('learningPaths:getModules', async (_, pathId) => {
     if (isFallbackDatabase()) {
-      return getFallbackCollection('learning_lessons').filter((l: any) => l.trackId === trackId)
+      return getFallbackCollection('learning_modules').filter((m: any) => m.pathId === pathId)
     } else {
-      return getDatabase().select().from(schema.learningLessons).where(eq(schema.learningLessons.trackId, trackId)).all()
+      return getDatabase().select().from(schema.learningModules).where(eq(schema.learningModules.pathId, pathId)).all()
     }
   })
 
-  ipcMain.handle('learningTracks:updateLesson', async (_, id, updates) => {
+  ipcMain.handle('learningPaths:updateModule', async (_, id, updates) => {
     if (isFallbackDatabase()) {
-      const updated = updateFallback('learning_lessons', id, updates)
+      const updated = updateFallback('learning_modules', id, updates)
       
       if (updates.status === 'done' && updated) {
-        const lessons = getFallbackCollection('learning_lessons').filter((l: any) => l.trackId === updated.trackId)
-        const doneCount = lessons.filter((l: any) => l.status === 'done').length
+        const modules = getFallbackCollection('learning_modules').filter((m: any) => m.pathId === updated.pathId)
+        const doneCount = modules.filter((m: any) => m.status === 'done').length
         
-        updateFallback('learning_tracks', updated.trackId, {
-          completedLessons: doneCount,
-          currentLesson: Math.min(lessons.length, doneCount + 1),
+        updateFallback('learning_paths', updated.pathId, {
+          completedModules: doneCount,
           lastStudiedAt: new Date().toISOString()
         })
       }
       return updated
     } else {
       const db = getDatabase()
-      db.update(schema.learningLessons).set(updates as any).where(eq(schema.learningLessons.id, id)).run()
-      const updated = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.id, id)).get()
+      db.update(schema.learningModules).set(updates as any).where(eq(schema.learningModules.id, id)).run()
+      const updated = db.select().from(schema.learningModules).where(eq(schema.learningModules.id, id)).get()
       
       if (updates.status === 'done' && updated) {
-        const lessons = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.trackId, updated.trackId)).all()
-        const doneCount = lessons.filter((l: any) => l.status === 'done').length
+        const modules = db.select().from(schema.learningModules).where(eq(schema.learningModules.pathId, updated.pathId)).all()
+        const doneCount = modules.filter((m: any) => m.status === 'done').length
         
-        db.update(schema.learningTracks).set({
-          completedLessons: doneCount,
-          currentLesson: Math.min(lessons.length, doneCount + 1),
+        db.update(schema.learningPaths).set({
+          completedModules: doneCount,
           lastStudiedAt: new Date()
-        } as any).where(eq(schema.learningTracks.id, updated.trackId)).run()
+        } as any).where(eq(schema.learningPaths.id, updated.pathId)).run()
       }
       return updated
     }
   })
 
-  ipcMain.handle('learningTracks:deleteLesson', async (_, id) => {
+  ipcMain.handle('learningPaths:deleteModule', async (_, id) => {
     if (isFallbackDatabase()) {
-      const lesson = getFallbackCollection('learning_lessons').find((l: any) => l.id === id)
-      if (!lesson) return false
+      const moduleItem = getFallbackCollection('learning_modules').find((m: any) => m.id === id)
+      if (!moduleItem) return false
 
-      const trackId = lesson.trackId
-      const lessonTitle = lesson.title
+      const pathId = moduleItem.pathId
+      const moduleTitle = moduleItem.title
 
-      // Delete the lesson
-      deleteFallback('learning_lessons', id)
+      // Delete module
+      deleteFallback('learning_modules', id)
 
-      // Delete tasks associated with this lesson title in this track
+      // Delete tasks associated with this module title in this path
       const associatedTasks = getFallbackCollection('tasks').filter(
-        (t: any) => t.learningTrackId === trackId && t.title.includes(lessonTitle)
+        (t: any) => t.learningTrackId === pathId && t.title.includes(moduleTitle)
       )
       associatedTasks.forEach((t: any) => {
         deleteFallback('tasks', t.id)
       })
 
-      // Get remaining lessons of this track
-      const lessons = getFallbackCollection('learning_lessons').filter((l: any) => l.trackId === trackId)
-      const doneCount = lessons.filter((l: any) => l.status === 'done').length
+      // Get remaining modules of this path
+      const modules = getFallbackCollection('learning_modules').filter((m: any) => m.pathId === pathId)
+      const doneCount = modules.filter((m: any) => m.status === 'done').length
 
-      // Update track
-      updateFallback('learning_tracks', trackId, {
-        totalLessons: lessons.length,
-        completedLessons: doneCount,
-        currentLesson: Math.min(lessons.length || 1, doneCount + 1)
+      // Update path
+      updateFallback('learning_paths', pathId, {
+        totalModules: modules.length,
+        completedModules: doneCount
       })
 
       return true
     } else {
       const db = getDatabase()
-      const lesson = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.id, id)).get()
-      if (!lesson) return false
+      const moduleItem = db.select().from(schema.learningModules).where(eq(schema.learningModules.id, id)).get()
+      if (!moduleItem) return false
 
-      const trackId = lesson.trackId
-      const lessonTitle = lesson.title
+      const pathId = moduleItem.pathId
+      const moduleTitle = moduleItem.title
 
-      // Delete the lesson
-      db.delete(schema.learningLessons).where(eq(schema.learningLessons.id, id)).run()
+      // Delete module
+      db.delete(schema.learningModules).where(eq(schema.learningModules.id, id)).run()
 
       // Delete associated tasks
       db.delete(schema.tasks)
         .where(
           and(
-            eq(schema.tasks.learningTrackId, trackId),
-            sql`${schema.tasks.title} LIKE ${'%' + lessonTitle + '%'}`
+            eq(schema.tasks.learningTrackId, pathId),
+            sql`${schema.tasks.title} LIKE ${'%' + moduleTitle + '%'}`
           )
         )
         .run()
 
-      // Get remaining lessons
-      const lessons = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.trackId, trackId)).all()
-      const doneCount = lessons.filter((l: any) => l.status === 'done').length
+      // Get remaining modules
+      const modules = db.select().from(schema.learningModules).where(eq(schema.learningModules.pathId, pathId)).all()
+      const doneCount = modules.filter((m: any) => m.status === 'done').length
 
-      // Update track
-      db.update(schema.learningTracks).set({
-        totalLessons: lessons.length,
-        completedLessons: doneCount,
-        currentLesson: Math.min(lessons.length || 1, doneCount + 1),
+      // Update path
+      db.update(schema.learningPaths).set({
+        totalModules: modules.length,
+        completedModules: doneCount,
         updatedAt: new Date()
-      } as any).where(eq(schema.learningTracks.id, trackId)).run()
+      } as any).where(eq(schema.learningPaths.id, pathId)).run()
 
       return true
     }
@@ -1337,51 +1342,137 @@ export function registerIPCHandlers(): void {
     })
   }
 
-  ipcMain.handle('learningTracks:importYoutubePlaylist', async (_, urlStr, whyStarted, commitment) => {
+  // AI-generated learning path
+  ipcMain.handle('learningPaths:generatePath', async (_, topic, goal, level, minutesPerDay, style) => {
+    const settings = getAppSettings()
+    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
+    if (!hasAIKey) {
+      throw new Error('يرجى تفعيل مفتاح الـ API للذكاء الاصطناعي في الإعدادات لتوليد المسار.')
+    }
+
+    const provider = getAIProvider({
+      aiProvider: settings.aiProvider || 'gemini',
+      aiModel: settings.aiModel || 'gemini-1.5-flash',
+      aiApiKey: settings.aiApiKey || '',
+      aiCustomEndpoint: settings.aiCustomEndpoint
+    })
+
+    const prompt = buildPathGeneratorPrompt(topic, goal, level, minutesPerDay, style)
+    const response = await provider.sendMessage([{ role: 'user', content: prompt }])
+
+    let cleanJson = response.trim()
+    if (cleanJson.startsWith('```json')) cleanJson = cleanJson.substring(7)
+    if (cleanJson.startsWith('```')) cleanJson = cleanJson.substring(3)
+    if (cleanJson.endsWith('```')) cleanJson = cleanJson.substring(0, cleanJson.length - 3)
+    cleanJson = cleanJson.trim()
+
+    const parsed = JSON.parse(cleanJson)
+
+    // Create learning path in database
+    let pathId: number
+    const pathPayload = {
+      title: parsed.title,
+      description: parsed.description,
+      emoji: '🤖',
+      goal,
+      source: 'ai_generated',
+      isAiGenerated: true,
+      aiRoadmap: cleanJson,
+      difficulty: level,
+      learningStyle: style,
+      totalModules: parsed.modules.length,
+      completedModules: 0,
+      dailyGoalMinutes: minutesPerDay,
+      status: 'active' as const,
+      totalStudyMinutes: 0,
+      xpEarned: 0
+    }
+
+    if (isFallbackDatabase()) {
+      const newPath = insertFallback('learning_paths', {
+        ...pathPayload,
+        createdAt: new Date().toISOString()
+      })
+      pathId = newPath.id
+
+      parsed.modules.forEach((mod: any, idx: number) => {
+        insertFallback('learning_modules', {
+          pathId,
+          order: mod.order || idx + 1,
+          title: mod.title,
+          type: mod.type || 'lesson',
+          estimatedMinutes: mod.estimatedMinutes || 20,
+          keyPoints: JSON.stringify(mod.keyPoints || []),
+          status: 'pending'
+        })
+      })
+    } else {
+      const db = getDatabase()
+      const result = db.insert(schema.learningPaths).values({
+        ...pathPayload,
+        createdAt: new Date()
+      } as any).run()
+      pathId = Number(result.lastInsertRowid)
+
+      db.transaction((tx) => {
+        parsed.modules.forEach((mod: any, idx: number) => {
+          tx.insert(schema.learningModules).values({
+            pathId,
+            order: mod.order || idx + 1,
+            title: mod.title,
+            type: mod.type || 'lesson',
+            estimatedMinutes: mod.estimatedMinutes || 20,
+            keyPoints: JSON.stringify(mod.keyPoints || []),
+            status: 'pending'
+          } as any).run()
+        })
+      })
+    }
+
+    return { pathId }
+  })
+
+  // YouTube Playlist Importer (modified to fit learning_paths and learning_modules)
+  ipcMain.handle('learningPaths:importYoutubePlaylist', async (_, urlStr, whyStarted, commitment) => {
     const playlistId = extractPlaylistId(urlStr)
     if (!playlistId) {
-      throw new Error('رابط يوتيوب غير صالح أو لا يحتوي على معرف قائمة التشغيل (list ID).')
+      throw new Error('رابط يوتيوب غير صالح أو لا يحتوي على معرف قائمة التشغيل.')
     }
 
     const { title, videos } = await scrapeYoutubePlaylist(playlistId)
     if (videos.length === 0) {
-      throw new Error('لم يتم العثور على أي فيديوهات في قائمة التشغيل هذه. قد تكون خاصة أو فارغة.')
+      throw new Error('لم يتم العثور على أي فيديوهات في قائمة التشغيل هذه.')
     }
 
-    // 1. Create track in DB
-    let trackId: number
-    const trackPayload = {
+    let pathId: number
+    const pathPayload = {
       title,
       emoji: '📺',
       description: `مسار يوتيوب مستورد: ${title}`,
-      source: 'يوتيوب',
+      source: 'youtube',
       sourceUrl: urlStr,
-      totalLessons: videos.length,
-      completedLessons: 0,
-      currentLesson: 1,
+      totalModules: videos.length,
+      completedModules: 0,
       status: 'active' as const,
-      currentStreakDays: 0,
-      longestStreakDays: 0,
-      totalStudyMinutes: 0,
-      xpEarned: 0,
       whyStarted,
       commitment,
-      pinchScore: 5
+      totalStudyMinutes: 0,
+      xpEarned: 0
     }
 
     if (isFallbackDatabase()) {
-      const newTrack = insertFallback('learning_tracks', {
-        ...trackPayload,
+      const newPath = insertFallback('learning_paths', {
+        ...pathPayload,
         createdAt: new Date().toISOString()
       })
-      trackId = newTrack.id
+      pathId = newPath.id
 
-      // Seed lessons
       videos.forEach((v, index) => {
-        insertFallback('learning_lessons', {
-          trackId,
+        insertFallback('learning_modules', {
+          pathId,
           order: index + 1,
           title: v.title,
+          type: 'lesson',
           estimatedMinutes: v.durationMinutes,
           status: 'pending',
           notes: `https://youtube.com/watch?v=${v.videoId}`
@@ -1389,18 +1480,19 @@ export function registerIPCHandlers(): void {
       })
     } else {
       const db = getDatabase()
-      const result = db.insert(schema.learningTracks).values({
-        ...trackPayload,
+      const result = db.insert(schema.learningPaths).values({
+        ...pathPayload,
         createdAt: new Date()
       } as any).run()
-      trackId = Number(result.lastInsertRowid)
+      pathId = Number(result.lastInsertRowid)
 
       db.transaction((tx) => {
         videos.forEach((v, index) => {
-          tx.insert(schema.learningLessons).values({
-            trackId,
+          tx.insert(schema.learningModules).values({
+            pathId,
             order: index + 1,
             title: v.title,
+            type: 'lesson',
             estimatedMinutes: v.durationMinutes,
             status: 'pending',
             notes: `https://youtube.com/watch?v=${v.videoId}`
@@ -1409,131 +1501,538 @@ export function registerIPCHandlers(): void {
       })
     }
 
-    // 2. Generate AI Roadmap and 3D Concept map
-    const settings = getAppSettings()
-    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
-    let roadmapMarkdown = ''
-    let conceptMapJson = ''
+    return { pathId }
+  })
 
-    if (hasAIKey) {
-      try {
-        const provider = getAIProvider({
-          aiProvider: settings.aiProvider || 'gemini',
-          aiModel: settings.aiModel || 'gemini-1.5-flash',
-          aiApiKey: settings.aiApiKey || '',
-          aiCustomEndpoint: settings.aiCustomEndpoint
-        })
+  // ==========================================
+  // Flashcards & FSRS IPC Handlers (v3)
+  // ==========================================
+  const fsrsService = new FSRSService()
 
-        const titlesList = videos.map((v, i) => `${i + 1}. ${v.title} (${v.durationMinutes} دقيقة)`).join('\n')
-        const prompt = `أنت خبير تعلم مخصص لعقول الـ ADHD. قمنا باستيراد قائمة تشغيل يوتيوب بعنوان "${title}" وتتكون من الدروس التالية:
-${titlesList}
-
-المطلوب منك هو:
-1. إنشاء خطة دراسية وخارطة طريق (Roadmap) تفصيلية بأسلوب الماركداون (Markdown). قسم الدروس إلى أبواب أو فصول منطقية، وقدم نصائح وإرشادات مخصصة للمصابين بـ ADHD حول كيفية دراستها وتجنب التشتت والملل، وتطبيقات عملية مقترحة.
-2. إنشاء خريطة مفاهيم ثلاثية الأبعاد (3D Concept Map) توضح الترابط والعلاقات بين الأبواب الرئيسية لهذه الدورة.
-
-يرجى إرجاع الإجابة بصيغة JSON فقط، بدون أي نصوص إضافية أو علامات كود (markdown fences). الهيكل المطلوب للـ JSON هو كالتالي:
-{
-  "roadmap": "الخارطة التفصيلية المكتوبة بالماركداون هنا...",
-  "conceptMap": {
-    "nodes": [
-      {"id": "1", "label": "اسم الكورس الرئيسي", "val": 20, "group": 0, "description": "وصف عام للكورس"},
-      {"id": "2", "label": "الباب الأول: ...", "val": 12, "group": 1, "description": "تفاصيل الباب الأول"},
-      {"id": "3", "label": "الباب الثاني: ...", "val": 12, "group": 2, "description": "تفاصيل الباب الثاني"}
-    ],
-    "links": [
-      {"source": "1", "target": "2"},
-      {"source": "1", "target": "3"}
-    ]
-  }
-}
-
-ملاحظات هامة:
-- تأكد من أن الروابط (links) تربط العقد الموجودة بالمعرفات (id) بدقة.
-- اجعل التسميات والخطة باللغة العربية، بأسلوب مشوق ومحفز ومناسب لعقول الـ ADHD.
-`
-
-        const response = await provider.sendMessage([
-          { role: 'user', content: prompt }
-        ])
-
-        let cleanJson = response.trim()
-        if (cleanJson.startsWith('```json')) cleanJson = cleanJson.substring(7)
-        if (cleanJson.startsWith('```')) cleanJson = cleanJson.substring(3)
-        if (cleanJson.endsWith('```')) cleanJson = cleanJson.substring(0, cleanJson.length - 3)
-        cleanJson = cleanJson.trim()
-
-        const parsed = JSON.parse(cleanJson)
-        roadmapMarkdown = parsed.roadmap
-        conceptMapJson = JSON.stringify(parsed.conceptMap)
-      } catch (err) {
-        console.error('AI Playlist Synthesis failed, falling back:', err)
-      }
-    }
-
-    // Fallback if AI fails or key is missing
-    if (!roadmapMarkdown || !conceptMapJson) {
-      roadmapMarkdown = `### 🗺️ خطة الدراسة المستوردة لقائمة: ${title}
-
-لقد قمنا باستيراد كورس يوتيوب بنجاح! إليك تقسيم الدروس المكتشفة ومقدار جلسات البومودورو المقترحة لكل درس:
-
-${videos.map((v, i) => `* **الدرس ${i + 1}:** ${v.title} (${v.durationMinutes} دقيقة) — يحتاج ${Math.ceil(v.durationMinutes / 25)} جلسة بومودورو ⏱️`).join('\n')}
-
----
-**💡 نصائح للبدء السريع (مكافحة تشتت الـ ADHD):**
-1. اضغط على أيقونة **بومودورو** بجانب أي درس لبدء جلسة تركيز مركزة بمدة 25 دقيقة.
-2. حول العناوين الصعبة إلى **مهمة تطبيقية عملية** فوراً لتثبيت المفاهيم.
-3. لتوليد خطة دراسية وخريطة ذهنية متطورة بالذكاء الاصطناعي تفكك المفاهيم المعقدة، يرجى تفعيل مفتاح الـ API في الإعدادات.`
-
-      const nodes = [
-        { id: '1', label: title, val: 20, group: 0, description: 'كورس يوتيوب الرئيسي' }
-      ]
-      const links: any[] = []
-      // Let's create visual nodes for the first 5 videos
-      videos.slice(0, 5).forEach((v, index) => {
-        const nodeId = (index + 2).toString()
-        nodes.push({
-          id: nodeId,
-          label: `فيديو ${index + 1}: ${v.title.slice(0, 20)}...`,
-          val: 10,
-          group: index + 1,
-          description: v.title
-        })
-        links.push({
-          source: '1',
-          target: nodeId
-        })
-      })
-
-      conceptMapJson = JSON.stringify({ nodes, links })
-    }
-
-    // Save the roadmap as a summarized material linked to this track
-    const materialPayload = {
-      title: `خريطة طريق مسار: ${title}`,
-      fileType: 'text_input' as const,
-      content: urlStr,
-      filePath: null,
-      learningTrackId: trackId,
-      status: 'summarized' as const,
-      summary: roadmapMarkdown,
-      conceptMap: conceptMapJson
-    }
-
+  ipcMain.handle('flashcards:getDecks', async () => {
     if (isFallbackDatabase()) {
-      insertFallback('learning_materials', {
-        ...materialPayload,
-        createdAt: new Date().toISOString()
+      return getFallbackCollection('flashcard_decks')
+    } else {
+      return getDatabase().select().from(schema.flashcardDecks).all()
+    }
+  })
+
+  ipcMain.handle('flashcards:getDeckById', async (_, id) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('flashcard_decks').find((d: any) => d.id === id)
+    } else {
+      return getDatabase().select().from(schema.flashcardDecks).where(eq(schema.flashcardDecks.id, id)).get()
+    }
+  })
+
+  ipcMain.handle('flashcards:createDeck', async (_, deck) => {
+    if (isFallbackDatabase()) {
+      return insertFallback('flashcard_decks', { ...deck, createdAt: new Date().toISOString() })
+    } else {
+      const db = getDatabase()
+      const result = db.insert(schema.flashcardDecks).values({ ...deck, createdAt: new Date() } as any).run()
+      return db.select().from(schema.flashcardDecks).where(eq(schema.flashcardDecks.id, Number(result.lastInsertRowid))).get()
+    }
+  })
+
+  ipcMain.handle('flashcards:getCards', async (_, deckId) => {
+    if (isFallbackDatabase()) {
+      const cards = getFallbackCollection('flashcards')
+      return deckId ? cards.filter((c: any) => c.deckId === deckId) : cards
+    } else {
+      const db = getDatabase()
+      return deckId 
+        ? db.select().from(schema.flashcards).where(eq(schema.flashcards.deckId, deckId)).all()
+        : db.select().from(schema.flashcards).all()
+    }
+  })
+
+  ipcMain.handle('flashcards:getDueCards', async (_, deckId) => {
+    const now = new Date()
+    if (isFallbackDatabase()) {
+      const cards = getFallbackCollection('flashcards')
+      return cards.filter((c: any) => {
+        if (c.deckId !== deckId) return false
+        if (!c.dueDate) return true // new cards are due
+        return new Date(c.dueDate) <= now
       })
     } else {
       const db = getDatabase()
-      db.insert(schema.learningMaterials).values({
-        ...materialPayload,
-        createdAt: new Date()
+      return db.select().from(schema.flashcards).where(
+        and(
+          eq(schema.flashcards.deckId, deckId),
+          sql`${schema.flashcards.dueDate} IS NULL OR ${schema.flashcards.dueDate} <= ${now.getTime()}`
+        )
+      ).all()
+    }
+  })
+
+  ipcMain.handle('flashcards:reviewCard', async (_, cardId, rating) => {
+    const now = new Date()
+    let card: any
+    let result: FSRSResult
+
+    if (isFallbackDatabase()) {
+      card = getFallbackCollection('flashcards').find((c: any) => c.id === cardId)
+      if (!card) throw new Error('Card not found')
+
+      // Calculate elapsed days
+      let elapsedDays = 0
+      if (card.lastReviewDate) {
+        const diffTime = now.getTime() - new Date(card.lastReviewDate).getTime()
+        elapsedDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)))
+      }
+
+      result = fsrsService.scheduleCard({
+        ...card,
+        elapsedDays
+      }, rating, now)
+
+      const daysSinceLastReview = elapsedDays
+      const { xp, wasDelayed } = fsrsService.calculateXP(card, rating, daysSinceLastReview)
+
+      // Update card
+      updateFallback('flashcards', cardId, {
+        stability: result.stability,
+        difficulty: result.difficulty,
+        retrievability: result.retrievability,
+        dueDate: result.nextReviewDate.toISOString(),
+        lastReviewDate: now.toISOString(),
+        nextInterval: result.interval,
+        reviewCount: card.reviewCount + 1,
+        lapseCount: rating === 1 ? card.lapseCount + 1 : card.lapseCount,
+        state: result.state
+      })
+
+      // Insert review log
+      insertFallback('fsrs_reviews', {
+        cardId,
+        deckId: card.deckId,
+        rating,
+        prevStability: card.stability,
+        prevDifficulty: card.difficulty,
+        prevRetrievability: card.retrievability,
+        newStability: result.stability,
+        newDifficulty: result.difficulty,
+        newInterval: result.interval,
+        xpAwarded: xp,
+        wasDelayedReview: wasDelayed,
+        reviewedAt: now.toISOString(),
+        date: now.toISOString().split('T')[0]
+      })
+
+      // Add XP to profile
+      if (xp > 0) {
+        const profile = getFallbackCollection('user_profile')[0]
+        if (profile) {
+          updateFallback('user_profile', profile.id, {
+            totalXP: (profile.totalXP || 0) + xp
+          })
+          insertFallback('xp_ledger', {
+            amount: xp,
+            reason: `مراجعة بطاقة تعليمية: ${card.front.slice(0, 30)}...`,
+            refId: cardId,
+            refType: 'flashcard_review',
+            totalAfter: (profile.totalXP || 0) + xp,
+            date: now.toISOString().split('T')[0],
+            createdAt: now.toISOString()
+          })
+        }
+      }
+
+      return { nextInterval: result.interval, xpEarned: xp }
+    } else {
+      const db = getDatabase()
+      card = db.select().from(schema.flashcards).where(eq(schema.flashcards.id, cardId)).get()
+      if (!card) throw new Error('Card not found')
+
+      let elapsedDays = 0
+      if (card.lastReviewDate) {
+        const diffTime = now.getTime() - card.lastReviewDate.getTime()
+        elapsedDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)))
+      }
+
+      result = fsrsService.scheduleCard({
+        ...card,
+        elapsedDays
+      }, rating, now)
+
+      const { xp, wasDelayed } = fsrsService.calculateXP(card, rating, elapsedDays)
+
+      db.update(schema.flashcards).set({
+        stability: result.stability,
+        difficulty: result.difficulty,
+        retrievability: result.retrievability,
+        dueDate: result.nextReviewDate,
+        lastReviewDate: now,
+        nextInterval: result.interval,
+        reviewCount: card.reviewCount + 1,
+        lapseCount: rating === 1 ? card.lapseCount + 1 : card.lapseCount,
+        state: result.state
+      } as any).where(eq(schema.flashcards.id, cardId)).run()
+
+      db.insert(schema.fsrsReviews).values({
+        cardId,
+        deckId: card.deckId,
+        rating,
+        prevStability: card.stability,
+        prevDifficulty: card.difficulty,
+        prevRetrievability: card.retrievability,
+        newStability: result.stability,
+        newDifficulty: result.difficulty,
+        newInterval: result.interval,
+        xpAwarded: xp,
+        wasDelayedReview: wasDelayed,
+        reviewedAt: now,
+        date: now.toISOString().split('T')[0]
       } as any).run()
+
+      if (xp > 0) {
+        const profile = db.select().from(schema.userProfile).where(eq(schema.userProfile.id, 1)).get()
+        if (profile) {
+          const totalAfter = (profile.totalXP || 0) + xp
+          db.update(schema.userProfile).set({ totalXP: totalAfter }).where(eq(schema.userProfile.id, 1)).run()
+          db.insert(schema.xpLedger).values({
+            amount: xp,
+            reason: `مراجعة بطاقة تعليمية: ${card.front.slice(0, 30)}...`,
+            refId: cardId,
+            refType: 'flashcard_review',
+            totalAfter,
+            date: now.toISOString().split('T')[0],
+            createdAt: now
+          } as any).run()
+        }
+      }
+
+      return { nextInterval: result.interval, xpEarned: xp }
+    }
+  })
+
+  // Auto-generate flashcards from module content using AI
+  ipcMain.handle('flashcards:generateCardsForModule', async (_, deckId, moduleId, content) => {
+    const settings = getAppSettings()
+    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
+    if (!hasAIKey) {
+      throw new Error('يرجى تهيئة مفتاح الذكاء الاصطناعي لتوليد البطاقات تلقائياً.')
     }
 
-    return { trackId }
+    const provider = getAIProvider({
+      aiProvider: settings.aiProvider || 'gemini',
+      aiModel: settings.aiModel || 'gemini-1.5-flash',
+      aiApiKey: settings.aiApiKey || '',
+      aiCustomEndpoint: settings.aiCustomEndpoint
+    })
+
+    const prompt = buildFlashcardGeneratorPrompt(content)
+    const response = await provider.sendMessage([{ role: 'user', content: prompt }])
+
+    let cleanJson = response.trim()
+    if (cleanJson.startsWith('```json')) cleanJson = cleanJson.substring(7)
+    if (cleanJson.startsWith('```')) cleanJson = cleanJson.substring(3)
+    if (cleanJson.endsWith('```')) cleanJson = cleanJson.substring(0, cleanJson.length - 3)
+    cleanJson = cleanJson.trim()
+
+    const cards = JSON.parse(cleanJson) as any[]
+
+    if (isFallbackDatabase()) {
+      cards.forEach((c: any) => {
+        insertFallback('flashcards', {
+          deckId,
+          moduleId,
+          front: c.front,
+          back: c.back,
+          hint: c.hint || null,
+          mediaType: c.mediaType || 'text',
+          stability: 0,
+          difficulty: 5,
+          state: 'new',
+          isAiGenerated: true,
+          createdAt: new Date().toISOString()
+        })
+      })
+
+      // Increment deck count
+      const deck = getFallbackCollection('flashcard_decks').find((d: any) => d.id === deckId)
+      if (deck) {
+        updateFallback('flashcard_decks', deckId, {
+          totalCards: (deck.totalCards || 0) + cards.length
+        })
+      }
+
+      // Mark module as generated
+      updateFallback('learning_modules', moduleId, {
+        autoGeneratedCards: true,
+        cardCount: cards.length
+      })
+    } else {
+      const db = getDatabase()
+      db.transaction((tx) => {
+        cards.forEach((c: any) => {
+          tx.insert(schema.flashcards).values({
+            deckId,
+            moduleId,
+            front: c.front,
+            back: c.back,
+            hint: c.hint || null,
+            mediaType: c.mediaType || 'text',
+            stability: 0,
+            difficulty: 5,
+            state: 'new',
+            isAiGenerated: true,
+            createdAt: new Date()
+          } as any).run()
+        })
+
+        // Increment deck count
+        const deck = tx.select().from(schema.flashcardDecks).where(eq(schema.flashcardDecks.id, deckId)).get()
+        if (deck) {
+          tx.update(schema.flashcardDecks).set({
+            totalCards: (deck.totalCards || 0) + cards.length
+          }).where(eq(schema.flashcardDecks.id, deckId)).run()
+        }
+
+        // Mark module
+        tx.update(schema.learningModules).set({
+          autoGeneratedCards: true,
+          cardCount: cards.length
+        } as any).where(eq(schema.learningModules.id, moduleId)).run()
+      })
+    }
+
+    return { count: cards.length }
+  })
+
+  // ==========================================
+  // Feynman Sessions IPC Handlers (v3)
+  // ==========================================
+  ipcMain.handle('feynman:getSessions', async (_, moduleId) => {
+    if (isFallbackDatabase()) {
+      const list = getFallbackCollection('feynman_sessions')
+      return moduleId ? list.filter((s: any) => s.moduleId === moduleId) : list
+    } else {
+      const db = getDatabase()
+      return moduleId
+        ? db.select().from(schema.feynmanSessions).where(eq(schema.feynmanSessions.moduleId, moduleId)).all()
+        : db.select().from(schema.feynmanSessions).all()
+    }
+  })
+
+  ipcMain.handle('feynman:evaluateSession', async (_, sessionData) => {
+    const { concept, explanation, targetAudience, moduleId, pathId } = sessionData
+    const settings = getAppSettings()
+    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
+
+    let result = {
+      aiScore: 70,
+      accuracy: 70,
+      clarity: 70,
+      depth: 70,
+      analogy: 70,
+      aiFeedback: 'تم حفظ الشرح بنجاح. لتفعيل تقييم مرشد فاينمان الذكي وتحديد الفجوات العلمية، يرجى تهيئة مفتاح الـ API في الإعدادات.',
+      aiGaps: [],
+      aiNextSteps: 'قم بمراجعة الدرس ومحاولة تغطية المفاهيم بشكل أدق.'
+    }
+
+    if (hasAIKey) {
+      const provider = getAIProvider({
+        aiProvider: settings.aiProvider || 'gemini',
+        aiModel: settings.aiModel || 'gemini-1.5-flash',
+        aiApiKey: settings.aiApiKey || '',
+        aiCustomEndpoint: settings.aiCustomEndpoint
+      })
+
+      const prompt = buildFeynmanEvaluatorPrompt(concept, explanation, targetAudience)
+      const response = await provider.sendMessage([{ role: 'user', content: prompt }])
+
+      let cleanJson = response.trim()
+      if (cleanJson.startsWith('```json')) cleanJson = cleanJson.substring(7)
+      if (cleanJson.startsWith('```')) cleanJson = cleanJson.substring(3)
+      if (cleanJson.endsWith('```')) cleanJson = cleanJson.substring(0, cleanJson.length - 3)
+      cleanJson = cleanJson.trim()
+
+      const parsed = JSON.parse(cleanJson)
+      result = {
+        aiScore: parsed.aiScore,
+        accuracy: parsed.accuracy,
+        clarity: parsed.clarity,
+        depth: parsed.depth,
+        analogy: parsed.analogy,
+        aiFeedback: parsed.aiFeedback,
+        aiGaps: parsed.aiGaps || [],
+        aiNextSteps: parsed.aiNextSteps
+      }
+    }
+
+    const xp = Math.round(result.aiScore * 0.4) // e.g. 80 score = 32 XP
+
+    if (isFallbackDatabase()) {
+      insertFallback('feynman_sessions', {
+        pathId,
+        moduleId,
+        concept,
+        audience: targetAudience,
+        explanation,
+        aiScore: result.aiScore,
+        accuracy: result.accuracy,
+        clarity: result.clarity,
+        depth: result.depth,
+        analogy: result.analogy,
+        aiFeedback: result.aiFeedback,
+        aiGaps: JSON.stringify(result.aiGaps),
+        aiNextSteps: result.aiNextSteps,
+        xpEarned: xp,
+        createdAt: new Date().toISOString()
+      })
+
+      if (xp > 0) {
+        const profile = getFallbackCollection('user_profile')[0]
+        if (profile) {
+          updateFallback('user_profile', profile.id, {
+            totalXP: (profile.totalXP || 0) + xp
+          })
+          insertFallback('xp_ledger', {
+            amount: xp,
+            reason: `جلسة فاينمان: ${concept}`,
+            refType: 'feynman_session',
+            totalAfter: (profile.totalXP || 0) + xp,
+            date: new Date().toISOString().split('T')[0],
+            createdAt: new Date().toISOString()
+          })
+        }
+      }
+    } else {
+      const db = getDatabase()
+      db.insert(schema.feynmanSessions).values({
+        pathId,
+        moduleId,
+        concept,
+        audience: targetAudience,
+        explanation,
+        aiScore: result.aiScore,
+        accuracy: result.accuracy,
+        clarity: result.clarity,
+        depth: result.depth,
+        analogy: result.analogy,
+        aiFeedback: result.aiFeedback,
+        aiGaps: JSON.stringify(result.aiGaps),
+        aiNextSteps: result.aiNextSteps,
+        xpEarned: xp,
+        createdAt: new Date()
+      } as any).run()
+
+      if (xp > 0) {
+        const profile = db.select().from(schema.userProfile).where(eq(schema.userProfile.id, 1)).get()
+        if (profile) {
+          const totalAfter = (profile.totalXP || 0) + xp
+          db.update(schema.userProfile).set({ totalXP: totalAfter }).where(eq(schema.userProfile.id, 1)).run()
+          db.insert(schema.xpLedger).values({
+            amount: xp,
+            reason: `جلسة فاينمان: ${concept}`,
+            refType: 'feynman_session',
+            totalAfter,
+            date: new Date().toISOString().split('T')[0],
+            createdAt: new Date()
+          } as any).run()
+        }
+      }
+    }
+
+    return { ...result, xpEarned: xp }
+  })
+
+  // ==========================================
+  // Knowledge Map IPC Handlers (v3)
+  // ==========================================
+  ipcMain.handle('knowledgeMap:getNodes', async (_, pathId) => {
+    if (isFallbackDatabase()) {
+      const list = getFallbackCollection('knowledge_nodes')
+      return pathId ? list.filter((n: any) => n.pathId === pathId) : list
+    } else {
+      const db = getDatabase()
+      return pathId
+        ? db.select().from(schema.knowledgeNodes).where(eq(schema.knowledgeNodes.pathId, pathId)).all()
+        : db.select().from(schema.knowledgeNodes).all()
+    }
+  })
+
+  ipcMain.handle('knowledgeMap:saveNodes', async (_, nodes) => {
+    if (isFallbackDatabase()) {
+      nodes.forEach((node: any) => {
+        const exists = getFallbackCollection('knowledge_nodes').find((n: any) => n.id === node.id)
+        if (exists) {
+          updateFallback('knowledge_nodes', node.id, node)
+        } else {
+          insertFallback('knowledge_nodes', node)
+        }
+      })
+      return true
+    } else {
+      const db = getDatabase()
+      db.transaction((tx) => {
+        nodes.forEach((node: any) => {
+          if (node.id) {
+            tx.update(schema.knowledgeNodes).set(node).where(eq(schema.knowledgeNodes.id, node.id)).run()
+          } else {
+            tx.insert(schema.knowledgeNodes).values(node).run()
+          }
+        })
+      })
+      return true
+    }
+  })
+
+  ipcMain.handle('knowledgeMap:generateNodesFromPath', async (_, pathId) => {
+    let modules: any[] = []
+    if (isFallbackDatabase()) {
+      modules = getFallbackCollection('learning_modules').filter((m: any) => m.pathId === pathId)
+      const existing = getFallbackCollection('knowledge_nodes').filter((n: any) => n.pathId === pathId)
+
+      modules.forEach((mod: any, index: number) => {
+        const nodeExists = existing.find((e: any) => e.concept === mod.title)
+        if (!nodeExists) {
+          const angle = (index / (modules.length || 1)) * 2 * Math.PI
+          const radius = 150
+          insertFallback('knowledge_nodes', {
+            pathId,
+            concept: mod.title,
+            description: `وحدة دراسية: ${mod.title}`,
+            mastery: mod.status === 'done' ? 1.0 : 0.0,
+            x: 350 + Math.round(radius * Math.cos(angle)),
+            y: 220 + Math.round(radius * Math.sin(angle)),
+            color: mod.type === 'feynman' ? '#f97316' : '#6366f1',
+            connections: '[]',
+            createdAt: new Date().toISOString()
+          })
+        }
+      })
+    } else {
+      const db = getDatabase()
+      modules = db.select().from(schema.learningModules).where(eq(schema.learningModules.pathId, pathId)).all()
+      const existing = db.select().from(schema.knowledgeNodes).where(eq(schema.knowledgeNodes.pathId, pathId)).all()
+
+      db.transaction((tx) => {
+        modules.forEach((mod: any, index: number) => {
+          const nodeExists = existing.find((e: any) => e.concept === mod.title)
+          if (!nodeExists) {
+            const angle = (index / (modules.length || 1)) * 2 * Math.PI
+            const radius = 150
+            tx.insert(schema.knowledgeNodes).values({
+              pathId,
+              concept: mod.title,
+              description: `وحدة دراسية: ${mod.title}`,
+              mastery: mod.status === 'done' ? 1.0 : 0.0,
+              x: 350 + Math.round(radius * Math.cos(angle)),
+              y: 220 + Math.round(radius * Math.sin(angle)),
+              color: mod.type === 'feynman' ? '#f97316' : '#6366f1',
+              connections: '[]',
+              createdAt: new Date()
+            } as any).run()
+          }
+        })
+      })
+    }
+
+    return true
   })
 
   // ==========================================

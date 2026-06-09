@@ -11,7 +11,11 @@ import DopamineMenu from './pages/DopamineMenu'
 import AICoach from './pages/AICoach'
 import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
-import LearningTracks from './pages/LearningTracks'
+import LearningPaths from './pages/LearningPaths'
+import Flashcards from './pages/Flashcards'
+import FlashcardReview from './pages/FlashcardReview'
+import Feynman from './pages/Feynman'
+import KnowledgeMap from './pages/KnowledgeMap'
 import Achievements from './pages/Achievements'
 import Onboarding from './pages/Onboarding'
 import LevelUpOverlay from './components/gamification/LevelUpOverlay'
@@ -43,7 +47,15 @@ function AppContent() {
       case 'projects':
         return <Projects />
       case 'learning':
-        return <LearningTracks />
+        return <LearningPaths />
+      case 'flashcards':
+        return <Flashcards />
+      case 'flashcard-review':
+        return <FlashcardReview />
+      case 'feynman':
+        return <Feynman />
+      case 'knowledgeMap':
+        return <KnowledgeMap />
       case 'focus':
         return <FocusMode />
       case 'habits':

@@ -17,7 +17,15 @@ import {
   AppSettings,
   LearningTrack,
   LearningLesson,
-  LearningMaterial
+  LearningMaterial,
+  LearningPath,
+  LearningModule,
+  FlashcardDeck,
+  Flashcard,
+  FSRSReview,
+  FeynmanSession,
+  KnowledgeNode,
+  LearningAnalytics
 } from './types'
 
 export type {
@@ -37,7 +45,15 @@ export type {
   ContextSnapshot,
   AppSettings,
   LearningTrack,
-  LearningLesson
+  LearningLesson,
+  LearningPath,
+  LearningModule,
+  FlashcardDeck,
+  Flashcard,
+  FSRSReview,
+  FeynmanSession,
+  KnowledgeNode,
+  LearningAnalytics
 }
 
 declare global {
@@ -122,6 +138,36 @@ declare global {
         updateLesson: (id: number, lesson: Partial<LearningLesson>) => Promise<LearningLesson>
         deleteLesson: (id: number) => Promise<boolean>
         importYoutubePlaylist: (url: string, whyStarted: string, commitment: string) => Promise<{ trackId: number }>
+      }
+      learningPaths: {
+        getPaths: () => Promise<LearningPath[]>
+        getPathById: (id: number) => Promise<LearningPath | undefined>
+        createPath: (path: Partial<LearningPath>) => Promise<LearningPath>
+        updatePath: (id: number, updates: Partial<LearningPath>) => Promise<LearningPath>
+        deletePath: (id: number) => Promise<boolean>
+        getModules: (pathId: number) => Promise<LearningModule[]>
+        updateModule: (id: number, updates: Partial<LearningModule>) => Promise<LearningModule>
+        deleteModule: (id: number) => Promise<boolean>
+        generatePath: (topic: string, goal: string, level: string, minutesPerDay: number, style: string) => Promise<LearningPath>
+        importYoutubePlaylist: (url: string, whyStarted: string, commitment: string) => Promise<{ pathId: number }>
+      }
+      flashcards: {
+        getDecks: () => Promise<FlashcardDeck[]>
+        getDeckById: (id: number) => Promise<FlashcardDeck | undefined>
+        createDeck: (deck: Partial<FlashcardDeck>) => Promise<FlashcardDeck>
+        getCards: (deckId: number) => Promise<Flashcard[]>
+        getDueCards: (deckId: number) => Promise<Flashcard[]>
+        reviewCard: (cardId: number, rating: number) => Promise<{ card: any; xpAwarded: number }>
+        generateCardsForModule: (deckId: number, moduleId: number, content: string) => Promise<Flashcard[]>
+      }
+      feynman: {
+        getSessions: (moduleId?: number) => Promise<FeynmanSession[]>
+        evaluateSession: (sessionData: { pathId?: number; moduleId?: number; concept: string; explanation: string; targetAudience?: string; durationMs?: number }) => Promise<FeynmanSession>
+      }
+      knowledgeMap: {
+        getNodes: (pathId: number) => Promise<KnowledgeNode[]>
+        saveNodes: (nodes: KnowledgeNode[]) => Promise<boolean>
+        generateNodesFromPath: (pathId: number) => Promise<KnowledgeNode[]>
       }
       learningMaterials: {
         getMaterials: (trackId?: number | null) => Promise<LearningMaterial[]>

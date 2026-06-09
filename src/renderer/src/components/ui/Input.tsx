@@ -109,8 +109,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
               htmlFor={inputId}
               initial={false}
               animate={{
-                y: isLabelRaised ? -8 : 0,
-                scale: isLabelRaised ? 0.85 : 1
+                y: isLabelRaised ? (size === 'lg' ? -16 : size === 'md' ? -12 : -8) : 0,
+                scale: isLabelRaised ? 0.75 : 1
               }}
               transition={{ duration: 0.15, ease: 'easeOut' }}
               className={clsx(

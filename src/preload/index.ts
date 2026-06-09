@@ -91,6 +91,43 @@ export const api = {
     importYoutubePlaylist: (url: string, whyStarted: string, commitment: string) =>
       ipcRenderer.invoke('learningTracks:importYoutubePlaylist', url, whyStarted, commitment),
   },
+  // Learning Paths
+  learningPaths: {
+    getPaths: () => ipcRenderer.invoke('learningPaths:getPaths'),
+    getPathById: (id: number) => ipcRenderer.invoke('learningPaths:getPathById', id),
+    createPath: (path: any) => ipcRenderer.invoke('learningPaths:createPath', path),
+    updatePath: (id: number, updates: any) => ipcRenderer.invoke('learningPaths:updatePath', id, updates),
+    deletePath: (id: number) => ipcRenderer.invoke('learningPaths:deletePath', id),
+    getModules: (pathId: number) => ipcRenderer.invoke('learningPaths:getModules', pathId),
+    updateModule: (id: number, updates: any) => ipcRenderer.invoke('learningPaths:updateModule', id, updates),
+    deleteModule: (id: number) => ipcRenderer.invoke('learningPaths:deleteModule', id),
+    generatePath: (topic: string, goal: string, level: string, minutesPerDay: number, style: string) =>
+      ipcRenderer.invoke('learningPaths:generatePath', topic, goal, level, minutesPerDay, style),
+    importYoutubePlaylist: (url: string, whyStarted: string, commitment: string) =>
+      ipcRenderer.invoke('learningPaths:importYoutubePlaylist', url, whyStarted, commitment),
+  },
+  // Flashcards
+  flashcards: {
+    getDecks: () => ipcRenderer.invoke('flashcards:getDecks'),
+    getDeckById: (id: number) => ipcRenderer.invoke('flashcards:getDeckById', id),
+    createDeck: (deck: any) => ipcRenderer.invoke('flashcards:createDeck', deck),
+    getCards: (deckId: number) => ipcRenderer.invoke('flashcards:getCards', deckId),
+    getDueCards: (deckId: number) => ipcRenderer.invoke('flashcards:getDueCards', deckId),
+    reviewCard: (cardId: number, rating: number) => ipcRenderer.invoke('flashcards:reviewCard', cardId, rating),
+    generateCardsForModule: (deckId: number, moduleId: number, content: string) =>
+      ipcRenderer.invoke('flashcards:generateCardsForModule', deckId, moduleId, content),
+  },
+  // Feynman Technique
+  feynman: {
+    getSessions: (moduleId?: number) => ipcRenderer.invoke('feynman:getSessions', moduleId),
+    evaluateSession: (sessionData: any) => ipcRenderer.invoke('feynman:evaluateSession', sessionData),
+  },
+  // Knowledge Map
+  knowledgeMap: {
+    getNodes: (pathId: number) => ipcRenderer.invoke('knowledgeMap:getNodes', pathId),
+    saveNodes: (nodes: any[]) => ipcRenderer.invoke('knowledgeMap:saveNodes', nodes),
+    generateNodesFromPath: (pathId: number) => ipcRenderer.invoke('knowledgeMap:generateNodesFromPath', pathId),
+  },
   // Learning Materials
   learningMaterials: {
     getMaterials: (trackId?: number | null) => ipcRenderer.invoke('learningMaterials:getMaterials', trackId),

@@ -9,12 +9,14 @@ export function runMigrations(): void {
   }
   const db = getDatabase();
 
-  // For development v2 migration: drop tables if they exist to force clean schema alignment
+  // For development v3 migration: drop tables if they exist to force clean schema alignment
   const dropTables = [
-    'user_profile', 'settings', 'tasks', 'projects', 'learning_tracks', 'learning_lessons',
+    'user_profile', 'settings', 'tasks', 'projects', 
+    'learning_tracks', 'learning_lessons', 'learning_paths', 'learning_modules',
+    'flashcard_decks', 'flashcards', 'fsrs_reviews', 'feynman_sessions', 'knowledge_nodes', 'learning_analytics',
     'focus_sessions', 'habits', 'habit_logs', 'brain_dumps', 'dopamine_activities',
     'dopamine_logs', 'mood_logs', 'energy_logs', 'xp_ledger', 'achievements',
-    'ai_conversations', 'context_snapshots'
+    'ai_conversations', 'context_snapshots', 'learning_materials'
   ];
   for (const table of dropTables) {
     try {
@@ -110,45 +112,160 @@ export function runMigrations(): void {
     completed_at INTEGER
   )`);
 
-  // 5. learning_tracks
-  db.run(sql`CREATE TABLE IF NOT EXISTS learning_tracks (
+  // 5. learning_paths
+  db.run(sql`CREATE TABLE IF NOT EXISTS learning_paths (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     emoji TEXT DEFAULT '📚',
     description TEXT,
+    goal TEXT,
     source TEXT,
     source_url TEXT,
-    total_lessons INTEGER NOT NULL DEFAULT 1,
-    done_lessons INTEGER DEFAULT 0,
-    current_lesson INTEGER DEFAULT 1,
-    current_lesson_title TEXT,
+    ai_generated INTEGER DEFAULT 0,
+    ai_roadmap TEXT,
+    difficulty TEXT DEFAULT 'beginner',
+    learning_style TEXT DEFAULT 'mixed',
+    total_modules INTEGER DEFAULT 0,
+    done_modules INTEGER DEFAULT 0,
+    current_module INTEGER,
     last_position TEXT,
-    daily_goal_min INTEGER DEFAULT 20,
+    daily_goal INTEGER DEFAULT 20,
     why_started TEXT,
     commitment TEXT,
+    abandon_risk REAL DEFAULT 0,
+    deck_id INTEGER,
     status TEXT NOT NULL DEFAULT 'active',
-    current_streak INTEGER DEFAULT 0,
-    longest_streak INTEGER DEFAULT 0,
-    last_studied INTEGER,
     total_minutes INTEGER DEFAULT 0,
+    streak INTEGER DEFAULT 0,
+    best_streak INTEGER DEFAULT 0,
+    last_studied INTEGER,
     xp_earned INTEGER DEFAULT 0,
     pinch_score REAL DEFAULT 5,
+    retention REAL DEFAULT 0,
     created_at INTEGER NOT NULL,
     completed_at INTEGER
   )`);
 
-  // 6. learning_lessons
-  db.run(sql`CREATE TABLE IF NOT EXISTS learning_lessons (
+  // 6. learning_modules
+  db.run(sql`CREATE TABLE IF NOT EXISTS learning_modules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL,
+    path_id INTEGER NOT NULL,
     "order" INTEGER NOT NULL,
     title TEXT NOT NULL,
-    estimated_min INTEGER DEFAULT 20,
-    actual_min INTEGER,
+    type TEXT NOT NULL DEFAULT 'lesson',
+    content TEXT,
+    est_min INTEGER DEFAULT 20,
+    chunks INTEGER DEFAULT 1,
     status TEXT DEFAULT 'pending',
+    auto_cards INTEGER DEFAULT 0,
+    card_count INTEGER DEFAULT 0,
     notes TEXT,
     key_points TEXT,
     completed_at INTEGER
+  )`);
+
+  // 6a. flashcard_decks
+  db.run(sql`CREATE TABLE IF NOT EXISTS flashcard_decks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    emoji TEXT DEFAULT '🃏',
+    description TEXT,
+    path_id INTEGER,
+    target_retention REAL DEFAULT 0.90,
+    total_cards INTEGER DEFAULT 0,
+    due_today INTEGER DEFAULT 0,
+    new_today INTEGER DEFAULT 0,
+    mastered INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`);
+
+  // 6b. flashcards
+  db.run(sql`CREATE TABLE IF NOT EXISTS flashcards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deck_id INTEGER NOT NULL,
+    path_id INTEGER,
+    module_id INTEGER,
+    front TEXT NOT NULL,
+    back TEXT NOT NULL,
+    hint TEXT,
+    tags TEXT DEFAULT '[]',
+    media_type TEXT DEFAULT 'text',
+    stability REAL DEFAULT 0,
+    difficulty REAL DEFAULT 5,
+    retrievability REAL DEFAULT 0,
+    due_date INTEGER,
+    last_review INTEGER,
+    next_interval INTEGER DEFAULT 1,
+    reviews INTEGER DEFAULT 0,
+    lapses INTEGER DEFAULT 0,
+    state TEXT DEFAULT 'new',
+    ai_gen INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`);
+
+  // 6c. fsrs_reviews
+  db.run(sql`CREATE TABLE IF NOT EXISTS fsrs_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id INTEGER NOT NULL,
+    deck_id INTEGER NOT NULL,
+    rating INTEGER NOT NULL,
+    prev_s REAL,
+    prev_d REAL,
+    prev_r REAL,
+    new_s REAL,
+    new_d REAL,
+    new_interval INTEGER,
+    xp INTEGER DEFAULT 0,
+    delayed INTEGER DEFAULT 0,
+    reviewed_at INTEGER NOT NULL,
+    response_ms INTEGER,
+    date TEXT NOT NULL
+  )`);
+
+  // 6d. feynman_sessions
+  db.run(sql`CREATE TABLE IF NOT EXISTS feynman_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path_id INTEGER,
+    module_id INTEGER,
+    concept TEXT NOT NULL,
+    audience TEXT DEFAULT 'مبتدئ',
+    explanation TEXT NOT NULL,
+    duration_ms INTEGER,
+    ai_score INTEGER,
+    accuracy INTEGER,
+    clarity INTEGER,
+    depth INTEGER,
+    analogy INTEGER,
+    ai_feedback TEXT,
+    ai_gaps TEXT,
+    ai_next_steps TEXT,
+    xp INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`);
+
+  // 6e. knowledge_nodes
+  db.run(sql`CREATE TABLE IF NOT EXISTS knowledge_nodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path_id INTEGER,
+    concept TEXT NOT NULL,
+    description TEXT,
+    mastery REAL DEFAULT 0,
+    connections TEXT DEFAULT '[]',
+    x REAL DEFAULT 0,
+    y REAL DEFAULT 0,
+    color TEXT DEFAULT '#6366f1',
+    created_at INTEGER NOT NULL
+  )`);
+
+  // 6f. learning_analytics
+  db.run(sql`CREATE TABLE IF NOT EXISTS learning_analytics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    path_id INTEGER,
+    focus_minutes INTEGER DEFAULT 0,
+    cards_reviewed INTEGER DEFAULT 0,
+    feynman_sessions_count INTEGER DEFAULT 0,
+    avg_feynman_score REAL DEFAULT 0
   )`);
 
   // 7. focus_sessions
