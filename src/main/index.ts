@@ -6,10 +6,14 @@ import icon from '../../resources/icon.png?asset'
 import { initDatabase } from './database'
 import { runMigrations } from './database/migrate'
 import { registerIPCHandlers } from './ipc'
+import { createTray } from './tray'
+import { registerGlobalHotkeys, unregisterGlobalHotkeys } from './globalHotkeys'
+
+let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1100,
     height: 750,
     show: false,
@@ -22,7 +26,9 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    if (mainWindow) {
+      mainWindow.show()
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -37,6 +43,10 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // Initialize System Tray and Global Hotkeys
+  createTray(mainWindow)
+  registerGlobalHotkeys(mainWindow)
 }
 
 // This method will be called when Electron has finished
@@ -78,5 +88,7 @@ app.on('window-all-closed', () => {
   }
 })
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
+app.on('will-quit', () => {
+  // Unregister all hotkeys on exit
+  unregisterGlobalHotkeys()
+})

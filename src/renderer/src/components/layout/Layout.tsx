@@ -1,9 +1,11 @@
 import { useEffect } from 'react'
 import { useAppStore } from '../../stores/app.store'
+import { useFocusStore } from '../../stores/focus.store'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
-import BrainDumpModal from '../ui/BrainDumpModal' // We will create this next
-import ToastContainer from '../ui/ToastContainer' // We will also create a small toast layout
+import BrainDumpModal from '../ui/BrainDumpModal'
+import ToastContainer from '../ui/ToastContainer'
+import CommandPalette from './CommandPalette'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -19,8 +21,18 @@ export default function Layout({ children }: LayoutProps) {
         toggleBrainDump()
       })
 
+      const unsubscribeFocus = window.api.system.onFocusHotkey(() => {
+        const { status, start, pause } = useFocusStore.getState()
+        if (status === 'running') {
+          pause()
+        } else {
+          start()
+        }
+      })
+
       return () => {
         unsubscribeBrainDump()
+        unsubscribeFocus()
       }
     }
     return undefined
@@ -46,6 +58,9 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Global Brain Dump Modal */}
       <BrainDumpModal isOpen={isBrainDumpOpen} onClose={() => setBrainDumpOpen(false)} />
+
+      {/* Global Command Palette */}
+      <CommandPalette />
 
       {/* Global Toast Notification Container */}
       <ToastContainer />

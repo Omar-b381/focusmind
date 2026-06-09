@@ -1,6 +1,6 @@
-import { ipcMain, Notification } from 'electron'
+import { ipcMain, Notification, dialog, BrowserWindow, app } from 'electron'
 import { getDatabase, isFallbackDatabase } from '../database'
-import { getFallbackCollection, insertFallback, updateFallback, deleteFallback } from '../database/fallback'
+import { getFallbackCollection, insertFallback, updateFallback, deleteFallback, initFallbackDatabase } from '../database/fallback'
 import { eq, and } from 'drizzle-orm'
 import * as schema from '../database/schema'
 import { getAIProvider } from '../ai/manager'
@@ -641,20 +641,299 @@ export function registerIPCHandlers(): void {
   // ==========================================
   // Analytics Handlers
   // ==========================================
-  ipcMain.handle('analytics:getAnalytics', async (_, _period) => {
-    return {
-      focusMinutes: 330,
-      tasksCompleted: 14,
-      averageMood: 4.1,
-      averageEnergy: 3.8,
-      averageFocus: 3.9,
-      dailyStats: []
+  ipcMain.handle('analytics:getAnalytics', async (_, period) => {
+    const daysCount = period === 'month' ? 30 : 7
+    const dates: string[] = []
+    const today = new Date()
+    
+    for (let i = daysCount - 1; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(today.getDate() - i)
+      dates.push(d.toISOString().split('T')[0])
+    }
+
+    if (isFallbackDatabase()) {
+      const sessions = getFallbackCollection('focus_sessions')
+      const tasks = getFallbackCollection('tasks')
+      const moods = getFallbackCollection('mood_logs')
+
+      const totalFocus = sessions.reduce((acc: number, s: any) => acc + (s.actualMinutes || 0), 0)
+      const totalTasks = tasks.filter((t: any) => t.status === 'done').length
+      
+      const moodValues = moods.map((m: any) => m.mood).filter(Boolean)
+      const avgMood = moodValues.length ? moodValues.reduce((a, b) => a + b, 0) / moodValues.length : 0
+      
+      const energyValues = moods.map((m: any) => m.energy).filter(Boolean)
+      const avgEnergy = energyValues.length ? energyValues.reduce((a, b) => a + b, 0) / energyValues.length : 0
+
+      const focusValues = moods.map((m: any) => m.focus).filter(Boolean)
+      const avgFocus = focusValues.length ? focusValues.reduce((a, b) => a + b, 0) / focusValues.length : 0
+
+      const dailyStats = dates.map(dStr => {
+        const dateObj = new Date(dStr)
+        const weekdayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+        const name = weekdayNames[dateObj.getDay()]
+
+        const daySessions = sessions.filter((s: any) => s.date === dStr)
+        const dayFocus = daySessions.reduce((acc: number, s: any) => acc + (s.actualMinutes || 0), 0)
+
+        const dayCompletedTasks = tasks.filter((t: any) => {
+          if (!t.completedAt) return false
+          const compDate = new Date(t.completedAt).toISOString().split('T')[0]
+          return compDate === dStr
+        }).length
+
+        const dayMoods = moods.filter((m: any) => m.date === dStr)
+        const dayAvgMood = dayMoods.length ? dayMoods.reduce((acc, m) => acc + m.mood, 0) / dayMoods.length : 0
+
+        return {
+          date: name,
+          focusMinutes: dayFocus,
+          tasksCompleted: dayCompletedTasks,
+          mood: dayAvgMood
+        }
+      })
+
+      return {
+        focusMinutes: totalFocus,
+        tasksCompleted: totalTasks,
+        averageMood: avgMood,
+        averageEnergy: avgEnergy,
+        averageFocus: avgFocus,
+        dailyStats
+      }
+    } else {
+      const db = getDatabase()
+      const sessions = db.select().from(schema.focusSessions).all()
+      const tasks = db.select().from(schema.tasks).all()
+      const moods = db.select().from(schema.moodLogs).all()
+
+      const totalFocus = sessions.reduce((acc: number, s: any) => acc + (s.actualMinutes || 0), 0)
+      const totalTasks = tasks.filter((t: any) => t.status === 'done').length
+      
+      const moodValues = moods.map((m: any) => m.mood).filter(Boolean)
+      const avgMood = moodValues.length ? moodValues.reduce((a, b) => a + b, 0) / moodValues.length : 0
+      
+      const energyValues = moods.map((m: any) => m.energy).filter(Boolean)
+      const avgEnergy = energyValues.length ? energyValues.reduce((a, b) => a + b, 0) / energyValues.length : 0
+
+      const focusValues = moods.map((m: any) => m.focus).filter(Boolean)
+      const avgFocus = focusValues.length ? focusValues.reduce((a, b) => a + b, 0) / focusValues.length : 0
+
+      const dailyStats = dates.map(dStr => {
+        const dateObj = new Date(dStr)
+        const weekdayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+        const name = weekdayNames[dateObj.getDay()]
+
+        const daySessions = sessions.filter((s: any) => s.date === dStr)
+        const dayFocus = daySessions.reduce((acc: number, s: any) => acc + (s.actualMinutes || 0), 0)
+
+        const dayCompletedTasks = tasks.filter((t: any) => {
+          if (!t.completedAt) return false
+          const compDate = new Date(t.completedAt).toISOString().split('T')[0]
+          return compDate === dStr
+        }).length
+
+        const dayMoods = moods.filter((m: any) => m.date === dStr)
+        const dayAvgMood = dayMoods.length ? dayMoods.reduce((acc, m) => acc + m.mood, 0) / dayMoods.length : 0
+
+        return {
+          date: name,
+          focusMinutes: dayFocus,
+          tasksCompleted: dayCompletedTasks,
+          mood: dayAvgMood
+        }
+      })
+
+      return {
+        focusMinutes: totalFocus,
+        tasksCompleted: totalTasks,
+        averageMood: avgMood,
+        averageEnergy: avgEnergy,
+        averageFocus: avgFocus,
+        dailyStats
+      }
+    }
+  })
+
+  // ==========================================
+  // Achievements Handlers
+  // ==========================================
+  ipcMain.handle('achievements:getAchievements', async () => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('achievements')
+    } else {
+      return getDatabase().select().from(schema.achievements).all()
+    }
+  })
+
+  ipcMain.handle('achievements:unlockAchievement', async (_, key) => {
+    const unlockedAt = new Date()
+    if (isFallbackDatabase()) {
+      const list = getFallbackCollection('achievements')
+      const achievement = list.find((a: any) => a.key === key)
+      if (achievement && !achievement.isUnlocked) {
+        updateFallback('achievements', achievement.id, {
+          isUnlocked: true,
+          unlockedAt: unlockedAt.toISOString()
+        })
+        return true
+      }
+      return false
+    } else {
+      const db = getDatabase()
+      const achievement = db.select().from(schema.achievements).where(eq(schema.achievements.key, key)).get()
+      if (achievement && !achievement.isUnlocked) {
+        db.update(schema.achievements)
+          .set({ isUnlocked: true, unlockedAt: unlockedAt } as any)
+          .where(eq(schema.achievements.key, key))
+          .run()
+        return true
+      }
+      return false
     }
   })
 
   // ==========================================
   // System / OS IPC Handlers
   // ==========================================
+  ipcMain.handle('system:exportData', async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) return false
+
+    const { filePath } = await dialog.showSaveDialog(window, {
+      title: 'تصدير بيانات FocusMind',
+      defaultPath: 'focusmind_backup.json',
+      filters: [{ name: 'JSON Files', extensions: ['json'] }]
+    })
+
+    if (!filePath) return false
+
+    let backupData: any = {}
+
+    if (isFallbackDatabase()) {
+      backupData = {
+        settings: getFallbackCollection('settings'),
+        tasks: getFallbackCollection('tasks'),
+        projects: getFallbackCollection('projects'),
+        focus_sessions: getFallbackCollection('focus_sessions'),
+        habits: getFallbackCollection('habits'),
+        habit_logs: getFallbackCollection('habit_logs'),
+        brain_dumps: getFallbackCollection('brain_dumps'),
+        dopamine_activities: getFallbackCollection('dopamine_activities'),
+        mood_logs: getFallbackCollection('mood_logs'),
+        ai_conversations: getFallbackCollection('ai_conversations'),
+        achievements: getFallbackCollection('achievements')
+      }
+    } else {
+      const db = getDatabase()
+      backupData = {
+        settings: db.select().from(schema.settings).all(),
+        tasks: db.select().from(schema.tasks).all(),
+        projects: db.select().from(schema.projects).all(),
+        focus_sessions: db.select().from(schema.focusSessions).all(),
+        habits: db.select().from(schema.habits).all(),
+        habit_logs: db.select().from(schema.habitLogs).all(),
+        brain_dumps: db.select().from(schema.brainDumps).all(),
+        dopamine_activities: db.select().from(schema.dopamineActivities).all(),
+        mood_logs: db.select().from(schema.moodLogs).all(),
+        ai_conversations: db.select().from(schema.aiConversations).all(),
+        achievements: db.select().from(schema.achievements).all()
+      }
+    }
+
+    try {
+      const fs = require('fs')
+      fs.writeFileSync(filePath, JSON.stringify(backupData, null, 2), 'utf-8')
+      return true
+    } catch (err) {
+      console.error('Failed to export data:', err)
+      return false
+    }
+  })
+
+  ipcMain.handle('system:importData', async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) return false
+
+    const { filePaths } = await dialog.showOpenDialog(window, {
+      title: 'استيراد بيانات FocusMind',
+      filters: [{ name: 'JSON Files', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+
+    if (!filePaths || filePaths.length === 0) return false
+
+    try {
+      const fs = require('fs')
+      const raw = fs.readFileSync(filePaths[0], 'utf-8')
+      const parsed = JSON.parse(raw)
+      
+      if (typeof parsed !== 'object') return false
+
+      if (isFallbackDatabase()) {
+        const path = require('path')
+        const userDataPath = app.getPath('userData')
+        const dataFilePath = path.join(userDataPath, 'focusmind_data.json')
+        fs.writeFileSync(dataFilePath, JSON.stringify(parsed, null, 2), 'utf-8')
+        initFallbackDatabase()
+        return true
+      } else {
+        const db = getDatabase()
+        db.transaction((tx) => {
+          if (Array.isArray(parsed.settings)) {
+            tx.delete(schema.settings).run()
+            for (const s of parsed.settings) tx.insert(schema.settings).values(s).run()
+          }
+          if (Array.isArray(parsed.tasks)) {
+            tx.delete(schema.tasks).run()
+            for (const t of parsed.tasks) tx.insert(schema.tasks).values(t).run()
+          }
+          if (Array.isArray(parsed.projects)) {
+            tx.delete(schema.projects).run()
+            for (const p of parsed.projects) tx.insert(schema.projects).values(p).run()
+          }
+          if (Array.isArray(parsed.focus_sessions)) {
+            tx.delete(schema.focusSessions).run()
+            for (const fsItem of parsed.focus_sessions) tx.insert(schema.focusSessions).values(fsItem).run()
+          }
+          if (Array.isArray(parsed.habits)) {
+            tx.delete(schema.habits).run()
+            for (const h of parsed.habits) tx.insert(schema.habits).values(h).run()
+          }
+          if (Array.isArray(parsed.habit_logs)) {
+            tx.delete(schema.habitLogs).run()
+            for (const hl of parsed.habit_logs) tx.insert(schema.habitLogs).values(hl).run()
+          }
+          if (Array.isArray(parsed.brain_dumps)) {
+            tx.delete(schema.brainDumps).run()
+            for (const bd of parsed.brain_dumps) tx.insert(schema.brainDumps).values(bd).run()
+          }
+          if (Array.isArray(parsed.dopamine_activities)) {
+            tx.delete(schema.dopamineActivities).run()
+            for (const da of parsed.dopamine_activities) tx.insert(schema.dopamineActivities).values(da).run()
+          }
+          if (Array.isArray(parsed.mood_logs)) {
+            tx.delete(schema.moodLogs).run()
+            for (const ml of parsed.mood_logs) tx.insert(schema.moodLogs).values(ml).run()
+          }
+          if (Array.isArray(parsed.ai_conversations)) {
+            tx.delete(schema.aiConversations).run()
+            for (const ac of parsed.ai_conversations) tx.insert(schema.aiConversations).values(ac).run()
+          }
+          if (Array.isArray(parsed.achievements)) {
+            tx.delete(schema.achievements).run()
+            for (const a of parsed.achievements) tx.insert(schema.achievements).values(a).run()
+          }
+        })
+        return true
+      }
+    } catch (err) {
+      console.error('Failed to import data:', err)
+      return false
+    }
+  })
+
   ipcMain.on('system:showNotification', (_, title, body) => {
     try {
       new Notification({ title, body }).show()

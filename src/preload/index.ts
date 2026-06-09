@@ -73,6 +73,11 @@ export const api = {
     getSettings: () => ipcRenderer.invoke('settings:getSettings'),
     updateSetting: (key: string, value: any) => ipcRenderer.invoke('settings:updateSetting', key, value),
   },
+  // Achievements
+  achievements: {
+    getAchievements: () => ipcRenderer.invoke('achievements:getAchievements'),
+    unlockAchievement: (key: string) => ipcRenderer.invoke('achievements:unlockAchievement', key),
+  },
   // System / Hotkeys
   system: {
     onBrainDumpHotkey: (callback: () => void) => {
@@ -90,6 +95,8 @@ export const api = {
       }
     },
     showNotification: (title: string, body: string) => ipcRenderer.send('system:showNotification', title, body),
+    exportData: () => ipcRenderer.invoke('system:exportData'),
+    importData: () => ipcRenderer.invoke('system:importData'),
   }
 }
 

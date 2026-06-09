@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSettingsStore } from '../stores/settings.store'
-import { ShieldAlert, Cpu, Timer, Volume2 } from 'lucide-react'
+import { ShieldAlert, Cpu, Timer, Volume2, Download } from 'lucide-react'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
@@ -174,6 +174,48 @@ export default function Settings() {
                   className="h-5 w-5 rounded border-[#2d3252] bg-[#1a1d27] text-indigo-500 focus:ring-0 focus:ring-offset-0"
                 />
               </label>
+            </div>
+          </Card>
+
+          {/* Backup & Restore */}
+          <Card className="p-5 space-y-4">
+            <h3 className="text-sm font-bold text-white font-cairo flex items-center gap-1.5 text-indigo-400 border-b border-[#2d3252]/50 pb-2">
+              <Download className="h-4 w-4" />
+              النسخ الاحتياطي والبيانات
+            </h3>
+            
+            <div className="space-y-3">
+              <p className="text-[10px] text-gray-400 leading-relaxed font-tajawal">
+                يمكنك حفظ نسخة احتياطية من كل بياناتك واستعادتها في أي وقت للحفاظ على تقدمك.
+              </p>
+              
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  className="flex-1 text-xs h-10 font-tajawal"
+                  onClick={async () => {
+                    const ok = await window.api.system.exportData()
+                    if (ok) {
+                      window.api.system.showNotification('تم التصدير بنجاح', 'تم حفظ نسخة احتياطية من بياناتك بنجاح.')
+                    }
+                  }}
+                >
+                  تصدير البيانات 📤
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="flex-1 text-xs h-10 font-tajawal"
+                  onClick={async () => {
+                    const ok = await window.api.system.importData()
+                    if (ok) {
+                      window.api.system.showNotification('تم الاستيراد بنجاح', 'تمت استعادة بياناتك بنجاح. سيتم تحديث الصفحة.')
+                      window.location.reload()
+                    }
+                  }}
+                >
+                  استيراد البيانات 📥
+                </Button>
+              </div>
             </div>
           </Card>
 

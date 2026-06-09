@@ -95,10 +95,16 @@ declare global {
         getSettings: () => Promise<AppSettings>
         updateSetting: (key: string, value: string) => Promise<boolean>
       }
+      achievements: {
+        getAchievements: () => Promise<Achievement[]>
+        unlockAchievement: (key: string) => Promise<boolean>
+      }
       system: {
         onBrainDumpHotkey: (callback: () => void) => () => void
         onFocusHotkey: (callback: () => void) => () => void
         showNotification: (title: string, body: string) => void
+        exportData: () => Promise<boolean>
+        importData: () => Promise<boolean>
       }
     }
   }
