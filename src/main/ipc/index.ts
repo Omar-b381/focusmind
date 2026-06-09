@@ -274,16 +274,152 @@ export function registerIPCHandlers(): void {
   })
 
   ipcMain.handle('focus:createSession', async (_, session) => {
+    let newSession
     if (isFallbackDatabase()) {
-      return insertFallback('focus_sessions', session)
+      newSession = insertFallback('focus_sessions', {
+        ...session,
+        startedAt: session.startedAt || new Date().toISOString()
+      })
     } else {
       const db = getDatabase()
       const result = db.insert(schema.focusSessions).values({
         ...session,
         startedAt: session.startedAt || new Date()
       } as any).run()
-      return db.select().from(schema.focusSessions).where(eq(schema.focusSessions.id, Number(result.lastInsertRowid))).get()
+      newSession = db.select().from(schema.focusSessions).where(eq(schema.focusSessions.id, Number(result.lastInsertRowid))).get()
     }
+
+    if (newSession && newSession.actualMinutes > 0 && newSession.type === 'focus') {
+      const actualMinutes = newSession.actualMinutes
+      let taskId = newSession.taskId
+      let projectId = newSession.projectId
+      let learningTrackId = newSession.learningTrackId
+
+      if (isFallbackDatabase()) {
+        // 1. Resolve task relations if missing
+        if (taskId) {
+          const task = getFallbackCollection('tasks').find((t: any) => t.id === taskId)
+          if (task) {
+            if (!projectId) projectId = task.projectId
+            if (!learningTrackId) learningTrackId = task.learningTrackId
+
+            // Update task actualMinutes
+            updateFallback('tasks', taskId, {
+              actualMinutes: (task.actualMinutes || 0) + actualMinutes
+            })
+          }
+        }
+
+        // 2. Update project minutes
+        if (projectId) {
+          const project = getFallbackCollection('projects').find((p: any) => p.id === projectId)
+          if (project) {
+            updateFallback('projects', projectId, {
+              totalFocusMinutes: (project.totalFocusMinutes || 0) + actualMinutes
+            })
+          }
+        }
+
+        // 3. Update learning track minutes & XP
+        const xpToEarn = Math.round(actualMinutes * 0.8) || 1
+        if (learningTrackId) {
+          const track = getFallbackCollection('learning_tracks').find((t: any) => t.id === learningTrackId)
+          if (track) {
+            updateFallback('learning_tracks', learningTrackId, {
+              totalStudyMinutes: (track.totalStudyMinutes || 0) + actualMinutes,
+              xpEarned: (track.xpEarned || 0) + xpToEarn
+            })
+          }
+        }
+
+        // 4. Update user profile XP and Level
+        const profiles = getFallbackCollection('user_profile')
+        const p = profiles[0] || { id: 1, totalXP: 0, level: 1 }
+        const nextXP = (p.totalXP || 0) + xpToEarn
+        let level = 1
+        let xpForPrevLevels = 0
+        while (nextXP >= xpForPrevLevels + level * 100) {
+          xpForPrevLevels += level * 100
+          level++
+        }
+        updateFallback('user_profile', p.id || 1, { totalXP: nextXP, level })
+
+        // 5. Insert XP ledger entry
+        insertFallback('xp_ledger', {
+          amount: xpToEarn,
+          reason: `جلسة تركيز: ${actualMinutes} دقيقة`,
+          refId: newSession.id,
+          refType: 'focus_session',
+          totalAfter: nextXP,
+          date: new Date().toISOString().split('T')[0]
+        })
+      } else {
+        const db = getDatabase()
+        
+        // 1. Resolve task relations if missing
+        if (taskId) {
+          const task = db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).get()
+          if (task) {
+            if (!projectId) projectId = task.projectId
+            if (!learningTrackId) learningTrackId = task.learningTrackId
+
+            db.update(schema.tasks).set({
+              actualMinutes: (task.actualMinutes || 0) + actualMinutes,
+              updatedAt: new Date()
+            } as any).where(eq(schema.tasks.id, taskId)).run()
+          }
+        }
+
+        // 2. Update project minutes
+        if (projectId) {
+          const project = db.select().from(schema.projects).where(eq(schema.projects.id, projectId)).get()
+          if (project) {
+            db.update(schema.projects).set({
+              totalFocusMinutes: (project.totalFocusMinutes || 0) + actualMinutes,
+              updatedAt: new Date()
+            } as any).where(eq(schema.projects.id, projectId)).run()
+          }
+        }
+
+        // 3. Update learning track minutes & XP
+        const xpToEarn = Math.round(actualMinutes * 0.8) || 1
+        if (learningTrackId) {
+          const track = db.select().from(schema.learningTracks).where(eq(schema.learningTracks.id, learningTrackId)).get()
+          if (track) {
+            db.update(schema.learningTracks).set({
+              totalStudyMinutes: (track.totalStudyMinutes || 0) + actualMinutes,
+              xpEarned: (track.xpEarned || 0) + xpToEarn
+            } as any).where(eq(schema.learningTracks.id, learningTrackId)).run()
+          }
+        }
+
+        // 4. Update user profile XP and Level
+        const p = db.select().from(schema.userProfile).get()
+        if (p) {
+          const nextXP = p.totalXP + xpToEarn
+          let level = 1
+          let xpForPrevLevels = 0
+          while (nextXP >= xpForPrevLevels + level * 100) {
+            xpForPrevLevels += level * 100
+            level++
+          }
+          db.update(schema.userProfile).set({ totalXP: nextXP, level }).where(eq(schema.userProfile.id, p.id)).run()
+
+          // 5. Insert XP ledger entry
+          db.insert(schema.xpLedger).values({
+            amount: xpToEarn,
+            reason: `جلسة تركيز: ${actualMinutes} دقيقة`,
+            referenceId: newSession.id,
+            referenceType: 'focus_session',
+            totalAfter: nextXP,
+            date: new Date().toISOString().split('T')[0],
+            createdAt: new Date()
+          } as any).run()
+        }
+      }
+    }
+
+    return newSession
   })
 
   // ==========================================

@@ -7,6 +7,7 @@ import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import { CircularProgress } from '../components/ui/Progress'
 import { useTasksQuery, useTaskQuery } from '../hooks/useTasks'
+import { useTracksQuery } from '../hooks/useLearningTracks'
 import Modal from '../components/ui/Modal'
 
 export default function FocusMode() {
@@ -17,6 +18,9 @@ export default function FocusMode() {
   const activeTaskId = storeTaskId || selectedTaskId
   const { data: activeTask } = useTaskQuery(activeTaskId as number)
   const { data: tasks = [] } = useTasksQuery()
+  const { data: tracks = [] } = useTracksQuery()
+
+  const activeTrack = tracks.find((t) => t.id === activeTask?.learningTrackId)
 
   // Modal selector state
   const [isSelectorOpen, setSelectorOpen] = useState(false)
@@ -41,13 +45,14 @@ export default function FocusMode() {
 
   const handleSelectTask = (id: number) => {
     setSelectedTaskId(id)
-    setSession(type, duration / 60, id, tasks.find((t) => t.id === id)?.projectId)
+    const task = tasks.find((t) => t.id === id)
+    setSession(type, duration / 60, id, task?.projectId, task?.learningTrackId)
     setSelectorOpen(false)
   }
 
   const handleClearTask = () => {
     setSelectedTaskId(null)
-    setSession(type, duration / 60, null, null)
+    setSession(type, duration / 60, null, null, null)
     setSelectorOpen(false)
   }
 
@@ -63,7 +68,7 @@ export default function FocusMode() {
           return (
             <button
               key={config.type}
-              onClick={() => setSession(config.type, config.duration, activeTaskId, activeTask?.projectId)}
+              onClick={() => setSession(config.type, config.duration, activeTaskId, activeTask?.projectId, activeTask?.learningTrackId)}
               className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 isActive
                   ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'
@@ -85,9 +90,17 @@ export default function FocusMode() {
             <p className="text-xs text-gray-400">تحديد مهمة للتركيز عليها يساعدك على تتبع إنجازك.</p>
             
             {activeTask ? (
-              <div className="p-3.5 bg-[#141621] border border-[#2d3252] rounded-xl flex items-center justify-between gap-2">
-                <span className="text-xs text-white font-medium truncate">{activeTask.title}</span>
-                <span className="text-[10px] text-indigo-400 font-bold shrink-0">نشط 🎯</span>
+              <div className="p-3.5 bg-[#141621] border border-[#2d3252] rounded-xl flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-white font-medium truncate">{activeTask.title}</span>
+                  <span className="text-[10px] text-indigo-400 font-bold shrink-0">نشط 🎯</span>
+                </div>
+                {activeTrack && (
+                  <div className="flex items-center gap-1.5 text-[10px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-2 py-0.5 rounded-lg w-fit font-cairo">
+                    <span>{activeTrack.emoji}</span>
+                    <span>{activeTrack.title}</span>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-3.5 bg-[#141621] border border-[#2d3252]/40 border-dashed rounded-xl text-center text-xs text-gray-400 font-tajawal">

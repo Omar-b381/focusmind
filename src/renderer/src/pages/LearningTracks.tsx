@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { 
   BookOpen, Plus, Sparkles, AlertCircle, Trash2, 
-  CheckCircle2, ExternalLink, Compass, Clock, Award 
+  CheckCircle2, ExternalLink, Compass, Clock, Award,
+  Play, Check, PlusCircle
 } from 'lucide-react'
 import { 
   useTracksQuery, 
@@ -13,6 +14,9 @@ import {
   useUpdateLessonMutation 
 } from '../hooks/useLearningTracks'
 import { useAddXPMutation } from '../hooks/useXP'
+import { useTasksQuery, useCreateTaskMutation, useUpdateTaskMutation } from '../hooks/useTasks'
+import { useAppStore } from '../stores/app.store'
+import { useFocusStore } from '../stores/focus.store'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
@@ -297,12 +301,17 @@ export default function LearningTracks() {
 
 function TrackDetails({ track }: { track: any }) {
   const { data: lessons, isLoading } = useLessonsQuery(track.id)
+  const { data: tasks = [] } = useTasksQuery()
+  
   const updateTrackMutation = useUpdateTrackMutation()
   const updateLessonMutation = useUpdateLessonMutation(track.id)
+  const createTaskMutation = useCreateTaskMutation()
+  const updateTaskMutation = useUpdateTaskMutation()
   const addXPMutation = useAddXPMutation()
 
   const [bookmark, setBookmark] = useState(track.lastPosition || '')
   const [isSavingBookmark, setSavingBookmark] = useState(false)
+  const [newTaskTitle, setNewTaskTitle] = useState('')
 
   const handleSaveBookmark = () => {
     setSavingBookmark(true)
@@ -351,6 +360,44 @@ function TrackDetails({ track }: { track: any }) {
       }
     })
   }
+
+  const handleAddTask = () => {
+    if (!newTaskTitle.trim()) return
+    createTaskMutation.mutate({
+      title: newTaskTitle.trim(),
+      learningTrackId: track.id,
+      status: 'inbox',
+      energyLevel: 'medium',
+      priority: 'medium',
+      tags: '[]'
+    }, {
+      onSuccess: () => {
+        setNewTaskTitle('')
+      }
+    })
+  }
+
+  const handleToggleTask = (task: any) => {
+    const isDone = task.status === 'done'
+    updateTaskMutation.mutate({
+      id: task.id,
+      updates: {
+        status: isDone ? 'inbox' : 'done',
+        completedAt: isDone ? null : new Date()
+      }
+    })
+  }
+
+  const handleStartFocusTask = (task: any) => {
+    // 1. Select the task in app store
+    useAppStore.getState().setSelectedTaskId(task.id)
+    // 2. Set the Pomodoro timer details in focus store
+    useFocusStore.getState().setSession('focus', 25, task.id, task.projectId, track.id)
+    // 3. Switch tab to Pomodoro Timer
+    useAppStore.getState().setActiveTab('focus')
+  }
+
+  const trackTasks = tasks.filter(t => t.learningTrackId === track.id)
 
   return (
     <Card className="glass p-6 space-y-6">
@@ -442,65 +489,152 @@ function TrackDetails({ track }: { track: any }) {
         </Card>
       </div>
 
-      {/* Lessons List Section */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-bold text-gray-200 font-cairo">الدروس الحالية</h3>
-        
-        {isLoading ? (
-          <div className="text-center py-4 text-gray-400">جاري تحميل الدروس...</div>
-        ) : !lessons || lessons.length === 0 ? (
-          <div className="text-center py-6 text-gray-400 border border-dashed border-dark-border rounded-2xl">
-            لا توجد دروس مخصصة. سيتم إنشاء الدروس تلقائياً بناءً على عدد دروس المسار.
-          </div>
-        ) : (
-          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-            {lessons.map((lesson) => {
-              const isDone = lesson.status === 'done'
-              const isCurrent = track.currentLesson === lesson.order
+      {/* Side by side Lessons and Tasks */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-dark-border">
+        {/* Lessons List Section */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-bold text-gray-200 font-cairo">الدروس الحالية 📖</h3>
+          
+          {isLoading ? (
+            <div className="text-center py-4 text-gray-400">جاري تحميل الدروس...</div>
+          ) : !lessons || lessons.length === 0 ? (
+            <div className="text-center py-6 text-gray-400 border border-dashed border-dark-border rounded-2xl">
+              لا توجد دروس مخصصة. سيتم إنشاء الدروس تلقائياً بناءً على عدد دروس المسار.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+              {lessons.map((lesson) => {
+                const isDone = lesson.status === 'done'
+                const isCurrent = track.currentLesson === lesson.order
 
+                return (
+                  <div 
+                    key={lesson.id}
+                    className={`flex justify-between items-center p-3 rounded-xl border transition-all ${
+                      isDone 
+                        ? 'bg-emerald-950/10 border-emerald-500/20 text-gray-400' 
+                        : isCurrent 
+                          ? 'bg-indigo-500/5 border-indigo-500/30 glow-primary' 
+                          : 'bg-dark-surface border-dark-border'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => handleCompleteLesson(lesson)}
+                        className={`p-1.5 rounded-lg border transition ${
+                          isDone 
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' 
+                            : 'bg-dark-bg border-dark-border hover:border-indigo-500 text-gray-600 hover:text-indigo-400'
+                        }`}
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                      </button>
+                      <div>
+                        <h4 className={`text-sm font-semibold font-tajawal ${isCurrent ? 'text-white' : 'text-gray-300'}`}>
+                          {lesson.title}
+                        </h4>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5 font-cairo">
+                          <span>الدرس {lesson.order}</span>
+                          {lesson.estimatedMinutes && <span>• {lesson.estimatedMinutes} دقيقة مقترحة</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {isCurrent && (
+                      <span className="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2.5 py-1 rounded-full font-cairo font-semibold animate-pulse">
+                        الدرس النشط
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Tasks List Section */}
+        <div className="space-y-4 flex flex-col h-full">
+          <h3 className="text-lg font-bold text-gray-200 font-cairo">المهام الدراسية والتطبيق 🎯</h3>
+          
+          <div className="space-y-2 flex-1 max-h-[240px] overflow-y-auto pr-1">
+            {trackTasks.map((task) => {
+              const isDone = task.status === 'done'
+              
               return (
                 <div 
-                  key={lesson.id}
+                  key={task.id}
                   className={`flex justify-between items-center p-3 rounded-xl border transition-all ${
                     isDone 
                       ? 'bg-emerald-950/10 border-emerald-500/20 text-gray-400' 
-                      : isCurrent 
-                        ? 'bg-indigo-500/5 border-indigo-500/30 glow-primary' 
-                        : 'bg-dark-surface border-dark-border'
+                      : 'bg-dark-surface border-dark-border'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <button 
-                      onClick={() => handleCompleteLesson(lesson)}
+                      onClick={() => handleToggleTask(task)}
                       className={`p-1.5 rounded-lg border transition ${
                         isDone 
                           ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' 
                           : 'bg-dark-bg border-dark-border hover:border-indigo-500 text-gray-600 hover:text-indigo-400'
                       }`}
                     >
-                      <CheckCircle2 className="h-4 w-4" />
+                      <Check className="h-4 w-4" />
                     </button>
                     <div>
-                      <h4 className={`text-sm font-semibold font-tajawal ${isCurrent ? 'text-white' : 'text-gray-300'}`}>
-                        {lesson.title}
+                      <h4 className={`text-sm font-semibold font-tajawal ${isDone ? 'line-through text-gray-500' : 'text-white'}`}>
+                        {task.title}
                       </h4>
                       <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5 font-cairo">
-                        <span>الدرس {lesson.order}</span>
-                        {lesson.estimatedMinutes && <span>• {lesson.estimatedMinutes} دقيقة مقترحة</span>}
+                        <span>التركيز: {task.actualMinutes || 0} د / {task.estimatedMinutes || 25} د</span>
                       </div>
                     </div>
                   </div>
 
-                  {isCurrent && (
-                    <span className="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2.5 py-1 rounded-full font-cairo font-semibold animate-pulse">
-                      الدرس النشط
-                    </span>
+                  {!isDone && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleStartFocusTask(task)}
+                      className="h-8 px-2 hover:bg-indigo-500/10 text-indigo-400 font-cairo text-xs gap-1 border border-transparent hover:border-indigo-500/25 shrink-0"
+                      icon={<Play className="h-3 w-3 fill-indigo-400" />}
+                    >
+                      بومودورو
+                    </Button>
                   )}
                 </div>
               )
             })}
+
+            {trackTasks.length === 0 && (
+              <div className="text-center py-8 text-xs text-gray-500 border border-dashed border-dark-border rounded-2xl font-tajawal leading-relaxed">
+                لا توجد مهام دراسية مرتبطة بهذا المسار حالياً.
+                <br />
+                أضف مهمة تطبيقية (عملي) بالأسفل لتنفيذ ما تتعلمه!
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Quick Task Creation Form */}
+          <div className="flex gap-2 border-t border-dark-border/40 pt-3 shrink-0">
+            <Input
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddTask()}
+              placeholder="إضافة مهمة دراسية جديدة..."
+              className="w-full text-xs font-tajawal"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleAddTask}
+              disabled={!newTaskTitle.trim()}
+              className="text-xs h-9 shrink-0 gap-1 font-cairo"
+              icon={<PlusCircle className="h-4 w-4 text-indigo-400" />}
+            >
+              إضافة
+            </Button>
+          </div>
+        </div>
       </div>
     </Card>
   )
