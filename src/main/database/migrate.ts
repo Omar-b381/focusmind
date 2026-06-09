@@ -1,8 +1,12 @@
-import { getDatabase } from './index';
+import { getDatabase, isFallbackDatabase } from './index';
 import { sql } from 'drizzle-orm';
 import * as schema from './schema';
 
 export function runMigrations(): void {
+  if (isFallbackDatabase()) {
+    console.log('Skipping SQLite migrations — running in JSON database fallback mode.');
+    return;
+  }
   const db = getDatabase();
 
   // Create tables if not exist
