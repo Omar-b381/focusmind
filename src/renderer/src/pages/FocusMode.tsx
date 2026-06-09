@@ -126,6 +126,7 @@ export default function FocusMode() {
               size={240}
               strokeWidth={12}
               color={type === 'focus' ? 'primary' : type === 'short_break' ? 'success' : 'dopamine'}
+              showLabel={false}
             />
             {/* Timer Counter */}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
