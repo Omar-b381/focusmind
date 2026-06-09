@@ -30,7 +30,10 @@
     "@anthropic-ai/sdk": "^0.24.0",
     "openai": "^4.52.0",
     "@google/generative-ai": "^0.15.0",
-    "electron-store": "^9.0.0"
+    "electron-store": "^9.0.0",
+    "howler": "^2.2.4",
+    "react-markdown": "^9.0.1",
+    "hotkeys-js": "^3.13.7"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",

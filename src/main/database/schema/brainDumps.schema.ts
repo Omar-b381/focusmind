@@ -3,9 +3,13 @@ import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 export const brainDumps = sqliteTable('brain_dumps', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   content: text('content').notNull(),
-  category: text('category').default('uncategorized'),
+  category: text('category').default('uncategorized'), // task, project_idea, worry, learning_idea, reminder, random
+  
+  aiCategorized: integer('ai_done', { mode: 'boolean' }).default(false),
+  aiSuggestion: text('ai_suggestion'),
   convertedToTaskId: integer('converted_to_task_id'),
-  aiSummary: text('ai_summary'),
+  convertedToTrackId: integer('track_id'),
   isArchived: integer('is_archived', { mode: 'boolean' }).default(false),
+  urgencyLevel: text('urgency').default('low'), // low, medium, high
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });
