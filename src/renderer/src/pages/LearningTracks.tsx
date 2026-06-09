@@ -12,7 +12,8 @@ import {
   useUpdateTrackMutation, 
   useDeleteTrackMutation, 
   useLessonsQuery, 
-  useUpdateLessonMutation 
+  useUpdateLessonMutation,
+  useDeleteLessonMutation
 } from '../hooks/useLearningTracks'
 import { useAddXPMutation } from '../hooks/useXP'
 import { useTasksQuery, useCreateTaskMutation, useUpdateTaskMutation } from '../hooks/useTasks'
@@ -462,6 +463,7 @@ function TrackDetails({ track, onBack }: { track: any; onBack: () => void }) {
   
   const updateTrackMutation = useUpdateTrackMutation()
   const updateLessonMutation = useUpdateLessonMutation(track.id)
+  const deleteLessonMutation = useDeleteLessonMutation(track.id)
   const createTaskMutation = useCreateTaskMutation()
   const updateTaskMutation = useUpdateTaskMutation()
   const addXPMutation = useAddXPMutation()
@@ -595,6 +597,13 @@ function TrackDetails({ track, onBack }: { track: any; onBack: () => void }) {
       priority: 'medium',
       tags: JSON.stringify(['تطبيق_عملي'])
     })
+  }
+
+  const handleDeleteLesson = (lessonId: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirm('هل أنت متأكد من حذف هذا الدرس؟ سيتم إزالته نهائياً مع أي مهام دراسية مرتبطة به.')) {
+      deleteLessonMutation.mutate(lessonId)
+    }
   }
 
   const handleAddMaterial = () => {
@@ -850,6 +859,15 @@ function TrackDetails({ track, onBack }: { track: any; onBack: () => void }) {
                             </Button>
                           </div>
                         )}
+
+                        {/* Delete Lesson Button */}
+                        <button
+                          onClick={(e) => handleDeleteLesson(lesson.id, e)}
+                          title="حذف الدرس"
+                          className="p-1.5 hover:bg-red-500/10 rounded-lg text-red-400 hover:text-red-300 border border-transparent hover:border-red-500/20 transition flex items-center justify-center shrink-0"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
                   )

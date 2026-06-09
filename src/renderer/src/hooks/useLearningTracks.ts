@@ -72,3 +72,16 @@ export function useUpdateLessonMutation(trackId: number) {
     }
   })
 }
+
+export function useDeleteLessonMutation(trackId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => window.api.learningTracks.deleteLesson(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['learning-lessons', trackId] })
+      queryClient.invalidateQueries({ queryKey: ['learning-track', trackId] })
+      queryClient.invalidateQueries({ queryKey: ['learning-tracks'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+    }
+  })
+}

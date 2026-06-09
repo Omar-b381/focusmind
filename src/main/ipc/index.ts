@@ -1089,10 +1089,82 @@ export function registerIPCHandlers(): void {
     }
   })
 
+  ipcMain.handle('learningTracks:deleteLesson', async (_, id) => {
+    if (isFallbackDatabase()) {
+      const lesson = getFallbackCollection('learning_lessons').find((l: any) => l.id === id)
+      if (!lesson) return false
+
+      const trackId = lesson.trackId
+      const lessonTitle = lesson.title
+
+      // Delete the lesson
+      deleteFallback('learning_lessons', id)
+
+      // Delete tasks associated with this lesson title in this track
+      const associatedTasks = getFallbackCollection('tasks').filter(
+        (t: any) => t.learningTrackId === trackId && t.title.includes(lessonTitle)
+      )
+      associatedTasks.forEach((t: any) => {
+        deleteFallback('tasks', t.id)
+      })
+
+      // Get remaining lessons of this track
+      const lessons = getFallbackCollection('learning_lessons').filter((l: any) => l.trackId === trackId)
+      const doneCount = lessons.filter((l: any) => l.status === 'done').length
+
+      // Update track
+      updateFallback('learning_tracks', trackId, {
+        totalLessons: lessons.length,
+        completedLessons: doneCount,
+        currentLesson: Math.min(lessons.length || 1, doneCount + 1)
+      })
+
+      return true
+    } else {
+      const db = getDatabase()
+      const lesson = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.id, id)).get()
+      if (!lesson) return false
+
+      const trackId = lesson.trackId
+      const lessonTitle = lesson.title
+
+      // Delete the lesson
+      db.delete(schema.learningLessons).where(eq(schema.learningLessons.id, id)).run()
+
+      // Delete associated tasks
+      db.delete(schema.tasks)
+        .where(
+          and(
+            eq(schema.tasks.learningTrackId, trackId),
+            sql`${schema.tasks.title} LIKE ${'%' + lessonTitle + '%'}`
+          )
+        )
+        .run()
+
+      // Get remaining lessons
+      const lessons = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.trackId, trackId)).all()
+      const doneCount = lessons.filter((l: any) => l.status === 'done').length
+
+      // Update track
+      db.update(schema.learningTracks).set({
+        totalLessons: lessons.length,
+        completedLessons: doneCount,
+        currentLesson: Math.min(lessons.length || 1, doneCount + 1),
+        updatedAt: new Date()
+      } as any).where(eq(schema.learningTracks.id, trackId)).run()
+
+      return true
+    }
+  })
+
   function extractPlaylistId(urlStr: string): string | null {
     try {
+      const trimmed = urlStr.trim()
+      if (/^[a-zA-Z0-9_-]{18,40}$/.test(trimmed)) {
+        return trimmed
+      }
       const reg = /[&?]list=([^&]+)/
-      const match = urlStr.match(reg)
+      const match = trimmed.match(reg)
       return match ? match[1] : null
     } catch {
       return null
@@ -1101,76 +1173,167 @@ export function registerIPCHandlers(): void {
 
   function scrapeYoutubePlaylist(playlistId: string): Promise<{ title: string; videos: { title: string; videoId: string; durationMinutes: number }[] }> {
     return new Promise((resolve, reject) => {
-      const urlStr = `https://www.youtube.com/playlist?list=${playlistId}`
-      const options = {
+      const urlStr = `https://www.youtube.com/playlist?list=${playlistId}&ucbcb=1`
+      const options: any = {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9'
-        }
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'identity',
+          'Cookie': 'CONSENT=YES+cb.20210328-17-p0.en+FX+999; SOCS=CAESEwgDEgk0ODE3Nzk3NTQaAmFyIAE; YES=yt'
+        },
+        rejectUnauthorized: false
       }
 
-      https.get(urlStr, options, (res) => {
-        let html = ''
-        res.on('data', (chunk) => { html += chunk })
-        res.on('end', () => {
-          try {
-            const regex = /ytInitialData\s*=\s*({.+?});/
-            const match = html.match(regex)
-            if (!match) {
-              return reject(new Error('Could not find playlist data on YouTube.'))
+      function getUrl(url: string, depth: number) {
+        if (depth > 5) {
+          return reject(new Error('تجاوز عدد التحويلات المسموح به أثناء محاولة الوصول إلى يوتيوب.'))
+        }
+
+        const req = https.get(url, options, (res) => {
+          // Follow redirects (status codes 3xx)
+          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            let redirectUrl = res.headers.location
+            if (redirectUrl.startsWith('/')) {
+              redirectUrl = 'https://www.youtube.com' + redirectUrl
             }
-
-            const json = JSON.parse(match[1])
-            
-            // Check for errors/alerts
-            if (json.alerts) {
-              const errAlert = json.alerts.find((a: any) => a.alertRenderer?.type === 'ERROR')
-              if (errAlert) {
-                const errText = errAlert.alertRenderer?.text?.runs?.[0]?.text || 'Playlist not found or private.'
-                return reject(new Error(errText))
-              }
-            }
-
-            const sidebar = json.sidebar?.playlistSidebarRenderer?.items?.[0]?.playlistSidebarPrimaryInfoRenderer || {}
-            const playlistTitle = sidebar.title?.runs?.[0]?.text || sidebar.title?.simpleText || 'YouTube Playlist'
-            
-            let contents: any[] = []
-            const sectionList = json.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents
-            if (sectionList && sectionList.length > 0) {
-              const itemSection = sectionList[0]?.itemSectionRenderer?.contents
-              if (itemSection && itemSection.length > 0) {
-                contents = itemSection[0]?.playlistVideoListRenderer?.contents || []
-              }
-            }
-
-            const videos: { title: string; videoId: string; durationMinutes: number }[] = []
-            for (const item of contents) {
-              const video = item.playlistVideoRenderer
-              if (!video) continue
-
-              const videoTitle = video.title?.runs?.[0]?.text || 'No Title'
-              const videoId = video.videoId
-              const lengthSeconds = parseInt(video.lengthSeconds) || 0
-              const durationMinutes = Math.round(lengthSeconds / 60) || 1
-
-              videos.push({
-                title: videoTitle,
-                videoId,
-                durationMinutes
-              })
-            }
-
-            resolve({
-              title: playlistTitle,
-              videos
-            })
-          } catch (err) {
-            reject(err)
+            return getUrl(redirectUrl, depth + 1)
           }
+
+          let html = ''
+          res.on('data', (chunk) => { html += chunk })
+          res.on('end', () => {
+            try {
+              // Use brace-matching helper to extract JSON
+              let startIdx = -1
+              const patterns = [
+                'ytInitialData =',
+                'ytInitialData=',
+                'window["ytInitialData"]',
+                "window['ytInitialData']"
+              ]
+              
+              for (const pattern of patterns) {
+                const idx = html.indexOf(pattern)
+                if (idx !== -1) {
+                  const braceIdx = html.indexOf('{', idx + pattern.length)
+                  if (braceIdx !== -1) {
+                    startIdx = braceIdx
+                    break
+                  }
+                }
+              }
+
+              if (startIdx === -1) {
+                return reject(new Error('لم يتم العثور على بيانات قائمة التشغيل في استجابة يوتيوب. يرجى التحقق من الرابط أو المحاولة لاحقاً.'))
+              }
+
+              let depthBrace = 0
+              let inString = false
+              let escape = false
+              let quoteChar = ''
+              let jsonStr = ''
+
+              for (let i = startIdx; i < html.length; i++) {
+                const char = html[i]
+
+                if (escape) {
+                  escape = false
+                  continue
+                }
+
+                if (char === '\\') {
+                  escape = true
+                  continue
+                }
+
+                if (inString) {
+                  if (char === quoteChar) {
+                    inString = false
+                  }
+                  continue
+                }
+
+                if (char === '"' || char === "'") {
+                  inString = true
+                  quoteChar = char
+                  continue
+                }
+
+                if (char === '{') {
+                  depthBrace++
+                } else if (char === '}') {
+                  depthBrace--
+                  if (depthBrace === 0) {
+                    jsonStr = html.slice(startIdx, i + 1)
+                    break
+                  }
+                }
+              }
+
+              if (!jsonStr) {
+                return reject(new Error('فشل استخراج بيانات البنية التحتية لقائمة التشغيل.'))
+              }
+
+              const json = JSON.parse(jsonStr)
+              
+              // Check for errors/alerts
+              if (json.alerts) {
+                const errAlert = json.alerts.find((a: any) => a.alertRenderer?.type === 'ERROR')
+                if (errAlert) {
+                  const errText = errAlert.alertRenderer?.text?.runs?.[0]?.text || 'قائمة التشغيل غير موجودة أو خاصة.'
+                  return reject(new Error(errText))
+                }
+              }
+
+              const sidebar = json.sidebar?.playlistSidebarRenderer?.items?.[0]?.playlistSidebarPrimaryInfoRenderer || {}
+              const playlistTitle = sidebar.title?.runs?.[0]?.text || sidebar.title?.simpleText || 'YouTube Playlist'
+              
+              let contents: any[] = []
+              const sectionList = json.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents
+              if (sectionList && sectionList.length > 0) {
+                const itemSection = sectionList[0]?.itemSectionRenderer?.contents
+                if (itemSection && itemSection.length > 0) {
+                  contents = itemSection[0]?.playlistVideoListRenderer?.contents || []
+                }
+              }
+
+              const videos: { title: string; videoId: string; durationMinutes: number }[] = []
+              for (const item of contents) {
+                const video = item.playlistVideoRenderer
+                if (!video) continue
+
+                const videoTitle = video.title?.runs?.[0]?.text || 'No Title'
+                const videoId = video.videoId
+                const lengthSeconds = parseInt(video.lengthSeconds) || 0
+                const durationMinutes = Math.round(lengthSeconds / 60) || 1
+
+                videos.push({
+                  title: videoTitle,
+                  videoId,
+                  durationMinutes
+                })
+              }
+
+              resolve({
+                title: playlistTitle,
+                videos
+              })
+            } catch (err: any) {
+              reject(err)
+            }
+          })
+        }).on('error', (err) => {
+          reject(err)
         })
-      }).on('error', (err) => {
-        reject(err)
-      })
+
+        // Set request timeout (15 seconds)
+        req.setTimeout(15000, () => {
+          req.destroy()
+          reject(new Error('انتهت مهلة الاتصال بيوتيوب. يرجى التحقق من الإنترنت أو إعدادات البروكسي/الشبكة.'))
+        })
+      }
+
+      getUrl(urlStr, 0)
     })
   }
 
@@ -1354,15 +1517,20 @@ ${videos.map((v, i) => `* **الدرس ${i + 1}:** ${v.title} (${v.durationMinut
       learningTrackId: trackId,
       status: 'summarized' as const,
       summary: roadmapMarkdown,
-      conceptMap: conceptMapJson,
-      createdAt: new Date().toISOString()
+      conceptMap: conceptMapJson
     }
 
     if (isFallbackDatabase()) {
-      insertFallback('learning_materials', materialPayload)
+      insertFallback('learning_materials', {
+        ...materialPayload,
+        createdAt: new Date().toISOString()
+      })
     } else {
       const db = getDatabase()
-      db.insert(schema.learningMaterials).values(materialPayload as any).run()
+      db.insert(schema.learningMaterials).values({
+        ...materialPayload,
+        createdAt: new Date()
+      } as any).run()
     }
 
     return { trackId }
