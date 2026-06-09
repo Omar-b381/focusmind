@@ -392,9 +392,29 @@ function TrackDetails({ track }: { track: any }) {
     // 1. Select the task in app store
     useAppStore.getState().setSelectedTaskId(task.id)
     // 2. Set the Pomodoro timer details in focus store
-    useFocusStore.getState().setSession('focus', 25, task.id, task.projectId, track.id)
+    useFocusStore.getState().setSession('focus', 25, task.id, task.projectId, track.id, null)
     // 3. Switch tab to Pomodoro Timer
     useAppStore.getState().setActiveTab('focus')
+  }
+
+  const handleStartFocusLesson = (lesson: any) => {
+    // 1. Select lesson in focus store (clear taskId)
+    useFocusStore.getState().setSession('focus', 25, null, null, track.id, lesson.id)
+    // 2. Clear selected task ID in app store
+    useAppStore.getState().setSelectedTaskId(null)
+    // 3. Switch tab to Pomodoro Timer
+    useAppStore.getState().setActiveTab('focus')
+  }
+
+  const handleConvertLessonToTask = (lesson: any) => {
+    createTaskMutation.mutate({
+      title: `تطبيق عملي: ${lesson.title}`,
+      learningTrackId: track.id,
+      status: 'inbox',
+      energyLevel: 'medium',
+      priority: 'medium',
+      tags: JSON.stringify(['تطبيق_عملي'])
+    })
   }
 
   const trackTasks = tasks.filter(t => t.learningTrackId === track.id)
@@ -540,11 +560,37 @@ function TrackDetails({ track }: { track: any }) {
                       </div>
                     </div>
 
-                    {isCurrent && (
-                      <span className="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2.5 py-1 rounded-full font-cairo font-semibold animate-pulse">
-                        الدرس النشط
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {isCurrent && (
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full font-cairo font-semibold animate-pulse shrink-0">
+                          النشط
+                        </span>
+                      )}
+                      
+                      {!isDone && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Convert to actionable practice task */}
+                          <button
+                            onClick={() => handleConvertLessonToTask(lesson)}
+                            title="حول لتطبيق عملي"
+                            className="p-1.5 hover:bg-orange-500/10 rounded-lg text-orange-400 hover:text-orange-300 border border-transparent hover:border-orange-500/20 transition flex items-center justify-center"
+                          >
+                            <PlusCircle className="h-4 w-4" />
+                          </button>
+                          
+                          {/* Start Focus Timer */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleStartFocusLesson(lesson)}
+                            className="h-8 px-2 hover:bg-orange-500/10 text-orange-400 font-cairo text-xs gap-1 border border-transparent hover:border-orange-500/25 shrink-0"
+                            icon={<Play className="h-3 w-3 fill-orange-400" />}
+                          >
+                            بومودورو
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}

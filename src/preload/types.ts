@@ -120,6 +120,7 @@ export interface FocusSession {
   taskId: number | null
   projectId: number | null
   learningTrackId: number | null
+  lessonId: number | null
   type: 'focus' | 'short_break' | 'long_break' | 'free_flow'
   
   plannedMinutes: number

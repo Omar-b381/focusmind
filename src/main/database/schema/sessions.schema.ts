@@ -5,6 +5,7 @@ export const focusSessions = sqliteTable('focus_sessions', {
   taskId: integer('task_id'),
   projectId: integer('project_id'),
   learningTrackId: integer('track_id'),
+  lessonId: integer('lesson_id'),
   type: text('type').notNull().default('focus'), // focus, short_break, long_break, free_flow
 
   plannedMinutes: integer('planned_minutes').notNull(),

@@ -294,6 +294,7 @@ export function registerIPCHandlers(): void {
       let taskId = newSession.taskId
       let projectId = newSession.projectId
       let learningTrackId = newSession.learningTrackId
+      let lessonId = newSession.lessonId
 
       if (isFallbackDatabase()) {
         // 1. Resolve task relations if missing
@@ -306,6 +307,17 @@ export function registerIPCHandlers(): void {
             // Update task actualMinutes
             updateFallback('tasks', taskId, {
               actualMinutes: (task.actualMinutes || 0) + actualMinutes
+            })
+          }
+        }
+
+        // 1b. Resolve lesson relations if present
+        if (lessonId) {
+          const lesson = getFallbackCollection('learning_lessons').find((l: any) => l.id === lessonId)
+          if (lesson) {
+            if (!learningTrackId) learningTrackId = lesson.trackId
+            updateFallback('learning_lessons', lessonId, {
+              actualMinutes: (lesson.actualMinutes || 0) + actualMinutes
             })
           }
         }
@@ -367,6 +379,17 @@ export function registerIPCHandlers(): void {
               actualMinutes: (task.actualMinutes || 0) + actualMinutes,
               updatedAt: new Date()
             } as any).where(eq(schema.tasks.id, taskId)).run()
+          }
+        }
+
+        // 1b. Resolve lesson relations if present
+        if (lessonId) {
+          const lesson = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.id, lessonId)).get()
+          if (lesson) {
+            if (!learningTrackId) learningTrackId = lesson.trackId
+            db.update(schema.learningLessons).set({
+              actualMinutes: (lesson.actualMinutes || 0) + actualMinutes
+            } as any).where(eq(schema.learningLessons.id, lessonId)).run()
           }
         }
 

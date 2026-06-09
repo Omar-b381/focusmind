@@ -157,6 +157,7 @@ export function runMigrations(): void {
     task_id INTEGER,
     project_id INTEGER,
     track_id INTEGER,
+    lesson_id INTEGER,
     type TEXT NOT NULL DEFAULT 'focus',
     planned_minutes INTEGER NOT NULL,
     actual_minutes INTEGER,

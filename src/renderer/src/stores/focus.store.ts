@@ -11,9 +11,17 @@ interface FocusState {
   taskId: number | null
   projectId: number | null
   learningTrackId: number | null
+  lessonId: number | null
   
   // Actions
-  setSession: (type: TimerType, minutes: number, taskId?: number | null, projectId?: number | null, learningTrackId?: number | null) => void
+  setSession: (
+    type: TimerType,
+    minutes: number,
+    taskId?: number | null,
+    projectId?: number | null,
+    learningTrackId?: number | null,
+    lessonId?: number | null
+  ) => void
   start: () => void
   pause: () => void
   reset: () => void
@@ -35,8 +43,9 @@ export const useFocusStore = create<FocusState>((set, get) => {
     taskId: null,
     projectId: null,
     learningTrackId: null,
+    lessonId: null,
 
-    setSession: (type, minutes, taskId = null, projectId = null, learningTrackId = null) => {
+    setSession: (type, minutes, taskId = null, projectId = null, learningTrackId = null, lessonId = null) => {
       if (intervalId) {
         clearInterval(intervalId)
         intervalId = null
@@ -48,7 +57,8 @@ export const useFocusStore = create<FocusState>((set, get) => {
         elapsed: 0,
         taskId,
         projectId,
-        learningTrackId
+        learningTrackId,
+        lessonId
       })
     },
 
@@ -114,12 +124,13 @@ export const useFocusStore = create<FocusState>((set, get) => {
       set({ status: 'finished' })
       
       // Notify main process or store session
-      const { taskId, projectId, learningTrackId, type, duration, elapsed } = get()
+      const { taskId, projectId, learningTrackId, lessonId, type, duration, elapsed } = get()
       if (window.api && window.api.focus) {
         window.api.focus.createSession({
           taskId,
           projectId,
           learningTrackId,
+          lessonId,
           type,
           plannedMinutes: Math.round(duration / 60),
           actualMinutes: Math.round(elapsed / 60),
