@@ -440,10 +440,10 @@ function AchievementsWidget() {
                   )}
                 </div>
                 <h4 className={`text-xs font-bold font-cairo ${isUnlocked ? 'text-white' : 'text-gray-400'}`}>
-                  {ach.name}
+                  {ach.nameAr || ach.name}
                 </h4>
                 <p className="text-[10px] text-gray-400 leading-normal font-tajawal">
-                  {ach.description}
+                  {ach.descriptionAr}
                 </p>
                 {isUnlocked && ach.unlockedAt && (
                   <span className="text-[9px] text-emerald-400/80 block mt-1">

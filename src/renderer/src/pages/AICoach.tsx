@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
-import { Bot, Send, Brain, AlertCircle, HelpCircle } from 'lucide-react'
+import { Bot, Send, Brain, AlertCircle, HelpCircle, Clock } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import { useAIChatMutation } from '../hooks/useAICoach'
+import { useUserProfileQuery } from '../hooks/useXP'
+import { useEnergyStore } from '../stores/energy.store'
+import { useLogEnergyMutation } from '../hooks/useEnergy'
 
 interface Message {
   id: string
@@ -12,11 +16,14 @@ interface Message {
 }
 
 export default function AICoach() {
+  const { data: profile } = useUserProfileQuery()
+  const userName = profile?.name || 'عمر'
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       role: 'assistant',
-      content: 'مرحباً عمر! أنا مدربك الشخصي لـ ADHD. كيف يمكنني مساعدتك اليوم؟ يمكنك التحدث معي حول أي تشتت، أو طلب تقسيم مهمة صعبة لخطوات صغيرة، أو مجرد التنفيس عن قلقك.',
+      content: `مرحباً عمر! أنا مدربك الشخصي لـ ADHD. كيف يمكنني مساعدتك اليوم؟ يمكنك التحدث معي حول أي تشتت، أو طلب تقسيم مهمة صعبة لخطوات صغيرة، أو مجرد التنفيس عن قلقك.`,
       timestamp: new Date()
     }
   ])
@@ -24,6 +31,8 @@ export default function AICoach() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const chatMutation = useAIChatMutation()
+  const currentEnergy = useEnergyStore((state) => state.currentEnergy)
+  const logEnergyMutation = useLogEnergyMutation()
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -32,6 +41,19 @@ export default function AICoach() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  useEffect(() => {
+    if (userName) {
+      setMessages([
+        {
+          id: '1',
+          role: 'assistant',
+          content: `مرحباً **${userName}**! أنا مدربك الشخصي لـ ADHD. كيف يمكنني مساعدتك اليوم؟ يمكنك التحدث معي حول أي تشتت، أو طلب تقسيم مهمة صعبة لخطوات صغيرة، أو مجرد التنفيس عن قلقك.`,
+          timestamp: new Date()
+        }
+      ])
+    }
+  }, [userName])
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() || chatMutation.isPending) return
@@ -60,7 +82,7 @@ export default function AICoach() {
       const assistantMessage: Message = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: reply.content || 'عذراً يا عمر، لم أستطع فهم الرسالة بشكل كامل. أعد صياغتها من فضلك.',
+        content: reply.content || 'عذراً يا بطل، لم أستطع فهم الرسالة بشكل كامل. أعد صياغتها من فضلك.',
         timestamp: new Date()
       }
       setMessages((prev) => [...prev, assistantMessage])
@@ -89,7 +111,7 @@ export default function AICoach() {
       {/* Header Info */}
       <div className="flex justify-between items-center mb-4 shrink-0">
         <div>
-          <h2 className="text-xl font-bold text-white font-cairo">المرشد الذكي لـ ADHD</h2>
+          <h2 className="text-xl font-bold text-white font-cairo">المرشد الذكي لـ ADHD 🤖</h2>
           <p className="text-xs text-gray-400 mt-0.5">مساعدك الشخصي للتغلب على التشتت، شلل المهام، وتقسيم الأهداف الكبيرة.</p>
         </div>
       </div>
@@ -105,7 +127,7 @@ export default function AICoach() {
               return (
                 <div
                   key={msg.id}
-                  className={`flex gap-3 max-w-[80%] ${
+                  className={`flex gap-3 max-w-[85%] ${
                     isAssistant ? 'self-start' : 'self-end flex-row-reverse mr-auto text-left'
                   }`}
                 >
@@ -121,7 +143,13 @@ export default function AICoach() {
                         : 'bg-indigo-500 text-white rounded-tl-none font-medium'
                     }`}
                   >
-                    {msg.content}
+                    {isAssistant ? (
+                      <div className="prose prose-invert prose-sm max-w-none font-tajawal space-y-1">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      msg.content
+                    )}
                   </div>
                 </div>
               )
@@ -149,7 +177,7 @@ export default function AICoach() {
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
               placeholder="اكتب رسالتك للمدرب هنا..."
-              className="flex-1 h-11 px-4 rounded-xl border border-[#2d3252] bg-[#1a1d27] text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/25 transition-all text-sm outline-none"
+              className="flex-1 h-11 px-4 rounded-xl border border-[#2d3252] bg-[#1a1d27] text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/25 transition-all text-sm outline-none font-tajawal"
               disabled={chatMutation.isPending}
             />
             <Button
@@ -167,21 +195,51 @@ export default function AICoach() {
 
         {/* Sidebar suggestions (Right 1 col) */}
         <div className="lg:col-span-1 space-y-4 shrink-0 flex flex-col justify-start">
+          {/* Energy level tracker */}
+          <Card className="p-4 space-y-3 border-[#2d3252]/50 font-cairo">
+            <h3 className="text-xs font-bold text-white flex items-center gap-1.5 text-indigo-400">
+              <Clock className="h-4 w-4" />
+              مستوى طاقتك الحالي
+            </h3>
+            <p className="text-[11px] text-gray-400 leading-relaxed font-tajawal">
+              سجل مستوى طاقتك الآن ليعدّل المساعد خطتك المقترحة:
+            </p>
+            <div className="flex gap-2 justify-center">
+              {[1, 2, 3, 4, 5].map((val) => {
+                const isSelected = currentEnergy === val
+                return (
+                  <button
+                    key={val}
+                    onClick={() => logEnergyMutation.mutate({ hour: new Date().getHours(), level: val })}
+                    className={`h-8 w-8 rounded-lg font-mono font-bold text-xs border transition ${
+                      isSelected 
+                        ? 'bg-indigo-500 border-indigo-400 text-white shadow-md shadow-indigo-500/20' 
+                        : 'bg-[#21253a] border-dark-border text-gray-400 hover:bg-dark-hover'
+                    }`}
+                  >
+                    {val}
+                  </button>
+                )
+              })}
+            </div>
+          </Card>
+
+          {/* Quick actions card */}
           <Card className="p-4 space-y-3 border-[#2d3252]/50">
             <h3 className="text-xs font-bold text-white font-cairo flex items-center gap-1.5 text-indigo-400">
               <Brain className="h-4 w-4" />
               مساعدة فورية (دوبامين)
             </h3>
-            <p className="text-[11px] text-gray-400 leading-relaxed">
+            <p className="text-[11px] text-gray-400 leading-relaxed font-tajawal">
               إذا كنت تواجه صعوبة بالغة في البدء، جرب هذه الأزرار السريعة لإرشاد المساعد فوراً:
             </p>
-            <div className="space-y-2.5">
+            <div className="space-y-2.5 font-cairo">
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={handleParalysisClick}
                 className="w-full text-xs text-right justify-start font-tajawal hover:border-orange-500/40"
-                icon={<AlertCircle className="h-4 w-4 text-orange-400" />}
+                icon={<AlertCircle className="h-4 w-4 text-orange-400 animate-pulse" />}
               >
                 أشعر بشلل المهام 💀
               </Button>
@@ -199,10 +257,10 @@ export default function AICoach() {
 
           <Card className="p-4 border-[#2d3252]/50 bg-gradient-to-br from-indigo-500/[0.02] to-transparent">
             <h4 className="text-xs font-bold text-white font-cairo mb-2">كيف تتحدث مع المساعد؟</h4>
-            <div className="text-[11px] text-gray-400 leading-relaxed space-y-2">
-              <p>📍 كن صادقاً تماماً بشأن مستويات تشتتك وطاقتك.</p>
-              <p>📍 اطلب منه أن يكون موجزاً إذا شعرت بملل القراءة.</p>
-              <p>📍 استخدم المحادثة الصوتية لتفريغ رأسك بسرعة دون الحاجة للكتابة.</p>
+            <div className="text-[11px] text-gray-400 leading-relaxed space-y-2 font-tajawal">
+              <p>📍 كن صادقاً بشأن مستوى تشتتك وطاقتك.</p>
+              <p>📍 اطلب منه أن يكون موجزاً إذا مللت من كثرة القراءة.</p>
+              <p>📍 المساعد يتعاطف معك تماماً ولا ينتقد أي إخفاق أو انتكاسة.</p>
             </div>
           </Card>
         </div>

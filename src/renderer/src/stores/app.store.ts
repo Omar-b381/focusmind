@@ -10,6 +10,8 @@ export type ActiveTab =
   | 'coach'
   | 'analytics'
   | 'settings'
+  | 'learning'
+  | 'achievements'
 
 interface AppState {
   activeTab: ActiveTab

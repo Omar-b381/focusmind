@@ -7,10 +7,16 @@ import {
   HabitLog,
   BrainDump,
   DopamineActivity,
+  DopamineLog,
   MoodLog,
-  AIConversation,
+  EnergyLog,
+  XPLedgerEntry,
   Achievement,
-  AppSettings
+  UserProfile,
+  ContextSnapshot,
+  AppSettings,
+  LearningTrack,
+  LearningLesson
 } from './types'
 
 export type {
@@ -21,10 +27,16 @@ export type {
   HabitLog,
   BrainDump,
   DopamineActivity,
+  DopamineLog,
   MoodLog,
-  AIConversation,
+  EnergyLog,
+  XPLedgerEntry,
   Achievement,
-  AppSettings
+  UserProfile,
+  ContextSnapshot,
+  AppSettings,
+  LearningTrack,
+  LearningLesson
 }
 
 declare global {
@@ -76,7 +88,7 @@ declare global {
         createMoodLog: (log: Partial<MoodLog>) => Promise<MoodLog>
       }
       ai: {
-        getAIConversations: (context: string) => Promise<AIConversation[]>
+        getAIConversations: (context: string) => Promise<any[]>
         sendChatMessage: (context: string, messages: { role: 'user' | 'assistant' | 'system'; content: string }[]) => Promise<any>
         generateDailyPlan: (energyLevel: number, taskIds: number[]) => Promise<any>
         reflectEvening: (notes: string) => Promise<any>
@@ -98,6 +110,31 @@ declare global {
       achievements: {
         getAchievements: () => Promise<Achievement[]>
         unlockAchievement: (key: string) => Promise<boolean>
+      }
+      learningTracks: {
+        getTracks: () => Promise<LearningTrack[]>
+        getTrackById: (id: number) => Promise<LearningTrack | undefined>
+        createTrack: (track: Partial<LearningTrack>) => Promise<LearningTrack>
+        updateTrack: (id: number, track: Partial<LearningTrack>) => Promise<LearningTrack>
+        deleteTrack: (id: number) => Promise<boolean>
+        getLessons: (trackId: number) => Promise<LearningLesson[]>
+        updateLesson: (id: number, lesson: Partial<LearningLesson>) => Promise<LearningLesson>
+      }
+      xp: {
+        getLedger: () => Promise<XPLedgerEntry[]>
+        addXP: (amount: number, reason: string, refId?: number, refType?: string) => Promise<XPLedgerEntry>
+      }
+      energy: {
+        getEnergyLogs: (startDate: string, endDate: string) => Promise<EnergyLog[]>
+        logEnergy: (hour: number, level: number) => Promise<EnergyLog>
+      }
+      userProfile: {
+        getProfile: () => Promise<UserProfile>
+        updateProfile: (updates: Partial<UserProfile>) => Promise<UserProfile>
+      }
+      contextSnapshots: {
+        getLatestSnapshot: (taskId?: number, projectId?: number, trackId?: number) => Promise<ContextSnapshot | undefined>
+        saveSnapshot: (snapshot: Partial<ContextSnapshot>) => Promise<ContextSnapshot>
       }
       system: {
         onBrainDumpHotkey: (callback: () => void) => () => void

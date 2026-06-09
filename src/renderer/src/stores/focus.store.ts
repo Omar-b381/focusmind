@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type TimerType = 'focus' | 'short_break' | 'long_break' | 'free'
+export type TimerType = 'focus' | 'short_break' | 'long_break' | 'free_flow'
 export type TimerStatus = 'idle' | 'running' | 'paused' | 'finished'
 
 interface FocusState {

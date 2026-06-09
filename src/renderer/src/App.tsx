@@ -11,11 +11,29 @@ import DopamineMenu from './pages/DopamineMenu'
 import AICoach from './pages/AICoach'
 import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
+import LearningTracks from './pages/LearningTracks'
+import Achievements from './pages/Achievements'
+import Onboarding from './pages/Onboarding'
+import LevelUpOverlay from './components/gamification/LevelUpOverlay'
+import { useUserProfileQuery } from './hooks/useXP'
 
-export default function App() {
+function AppContent() {
   const activeTab = useAppStore((state) => state.activeTab)
+  const { data: profile, isLoading, refetch } = useUserProfileQuery()
 
-  // Render page based on active tab state (fast state-based routing)
+  if (isLoading) {
+    return (
+      <div className="h-screen w-screen bg-[#0f1117] flex flex-col items-center justify-center font-cairo">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-r-2 border-indigo-500" />
+        <span className="text-gray-400 text-sm mt-4">جاري تحميل لوحة التحكم...</span>
+      </div>
+    )
+  }
+
+  if (!profile || !profile.onboardingCompleted) {
+    return <Onboarding onComplete={() => refetch()} />
+  }
+
   const renderPage = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -24,12 +42,16 @@ export default function App() {
         return <Tasks />
       case 'projects':
         return <Projects />
+      case 'learning':
+        return <LearningTracks />
       case 'focus':
         return <FocusMode />
       case 'habits':
         return <Habits />
       case 'dopamine':
         return <DopamineMenu />
+      case 'achievements':
+        return <Achievements />
       case 'coach':
         return <AICoach />
       case 'analytics':
@@ -42,8 +64,17 @@ export default function App() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
+    <>
       <Layout>{renderPage()}</Layout>
+      <LevelUpOverlay />
+    </>
+  )
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppContent />
     </QueryClientProvider>
   )
 }

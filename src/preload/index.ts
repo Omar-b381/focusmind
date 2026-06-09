@@ -78,6 +78,38 @@ export const api = {
     getAchievements: () => ipcRenderer.invoke('achievements:getAchievements'),
     unlockAchievement: (key: string) => ipcRenderer.invoke('achievements:unlockAchievement', key),
   },
+  // Learning Tracks
+  learningTracks: {
+    getTracks: () => ipcRenderer.invoke('learningTracks:getTracks'),
+    getTrackById: (id: number) => ipcRenderer.invoke('learningTracks:getTrackById', id),
+    createTrack: (track: any) => ipcRenderer.invoke('learningTracks:createTrack', track),
+    updateTrack: (id: number, track: any) => ipcRenderer.invoke('learningTracks:updateTrack', id, track),
+    deleteTrack: (id: number) => ipcRenderer.invoke('learningTracks:deleteTrack', id),
+    getLessons: (trackId: number) => ipcRenderer.invoke('learningTracks:getLessons', trackId),
+    updateLesson: (id: number, lesson: any) => ipcRenderer.invoke('learningTracks:updateLesson', id, lesson),
+  },
+  // XP System
+  xp: {
+    getLedger: () => ipcRenderer.invoke('xp:getLedger'),
+    addXP: (amount: number, reason: string, refId?: number, refType?: string) => 
+      ipcRenderer.invoke('xp:addXP', amount, reason, refId, refType),
+  },
+  // Energy curves
+  energy: {
+    getEnergyLogs: (startDate: string, endDate: string) => ipcRenderer.invoke('energy:getEnergyLogs', startDate, endDate),
+    logEnergy: (hour: number, level: number) => ipcRenderer.invoke('energy:logEnergy', hour, level),
+  },
+  // User profile
+  userProfile: {
+    getProfile: () => ipcRenderer.invoke('userProfile:getProfile'),
+    updateProfile: (updates: any) => ipcRenderer.invoke('userProfile:updateProfile', updates),
+  },
+  // Context Snapshots
+  contextSnapshots: {
+    getLatestSnapshot: (taskId?: number, projectId?: number, trackId?: number) => 
+      ipcRenderer.invoke('contextSnapshots:getLatestSnapshot', taskId, projectId, trackId),
+    saveSnapshot: (snapshot: any) => ipcRenderer.invoke('contextSnapshots:saveSnapshot', snapshot),
+  },
   // System / Hotkeys
   system: {
     onBrainDumpHotkey: (callback: () => void) => {
@@ -109,8 +141,8 @@ if (process.contextIsolated) {
     console.error('Error exposing APIs to main world:', error)
   }
 } else {
-  // @ts-ignore (define in dts)
+  // @ts-ignore
   window.electron = electronAPI
-  // @ts-ignore (define in dts)
+  // @ts-ignore
   window.api = api
 }

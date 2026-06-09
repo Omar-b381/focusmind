@@ -1,7 +1,7 @@
 import { ipcMain, Notification, dialog, BrowserWindow, app } from 'electron'
 import { getDatabase, isFallbackDatabase } from '../database'
 import { getFallbackCollection, insertFallback, updateFallback, deleteFallback, initFallbackDatabase } from '../database/fallback'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, sql } from 'drizzle-orm'
 import * as schema from '../database/schema'
 import { getAIProvider } from '../ai/manager'
 import { COACH_SYSTEM_PROMPT } from '../ai/prompts/coach'
@@ -791,6 +791,366 @@ export function registerIPCHandlers(): void {
         return true
       }
       return false
+    }
+  })
+
+  // ==========================================
+  // Learning Tracks Handlers
+  // ==========================================
+  ipcMain.handle('learningTracks:getTracks', async () => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('learning_tracks')
+    } else {
+      return getDatabase().select().from(schema.learningTracks).all()
+    }
+  })
+
+  ipcMain.handle('learningTracks:getTrackById', async (_, id) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('learning_tracks').find((t: any) => t.id === id)
+    } else {
+      return getDatabase().select().from(schema.learningTracks).where(eq(schema.learningTracks.id, id)).get()
+    }
+  })
+
+  ipcMain.handle('learningTracks:createTrack', async (_, track) => {
+    if (isFallbackDatabase()) {
+      const newTrack = insertFallback('learning_tracks', {
+        ...track,
+        totalLessons: track.totalLessons || 1,
+        completedLessons: 0,
+        currentLesson: 1,
+        status: 'active',
+        currentStreakDays: 0,
+        longestStreakDays: 0,
+        totalStudyMinutes: 0,
+        xpEarned: 0,
+        pinchScore: track.pinchScore || 5
+      })
+      // Seed initial lessons
+      for (let i = 1; i <= (track.totalLessons || 1); i++) {
+        insertFallback('learning_lessons', {
+          trackId: newTrack.id,
+          order: i,
+          title: `الدرس ${i}`,
+          estimatedMinutes: 20,
+          status: 'pending'
+        })
+      }
+      return newTrack
+    } else {
+      const db = getDatabase()
+      const result = db.insert(schema.learningTracks).values({
+        ...track,
+        createdAt: new Date()
+      } as any).run()
+      const trackId = Number(result.lastInsertRowid)
+      
+      // Seed initial lessons in transaction
+      db.transaction((tx) => {
+        for (let i = 1; i <= (track.totalLessons || 1); i++) {
+          tx.insert(schema.learningLessons).values({
+            trackId,
+            order: i,
+            title: `الدرس ${i}`,
+            estimatedMinutes: 20,
+            status: 'pending'
+          } as any).run()
+        }
+      })
+      return db.select().from(schema.learningTracks).where(eq(schema.learningTracks.id, trackId)).get()
+    }
+  })
+
+  ipcMain.handle('learningTracks:updateTrack', async (_, id, updates) => {
+    if (isFallbackDatabase()) {
+      return updateFallback('learning_tracks', id, updates)
+    } else {
+      const db = getDatabase()
+      db.update(schema.learningTracks).set({
+        ...updates,
+        updatedAt: new Date()
+      } as any).where(eq(schema.learningTracks.id, id)).run()
+      return db.select().from(schema.learningTracks).where(eq(schema.learningTracks.id, id)).get()
+    }
+  })
+
+  ipcMain.handle('learningTracks:deleteTrack', async (_, id) => {
+    if (isFallbackDatabase()) {
+      deleteFallback('learning_tracks', id)
+      return true
+    } else {
+      const db = getDatabase()
+      db.delete(schema.learningLessons).where(eq(schema.learningLessons.trackId, id)).run()
+      const result = db.delete(schema.learningTracks).where(eq(schema.learningTracks.id, id)).run()
+      return result.changes > 0
+    }
+  })
+
+  ipcMain.handle('learningTracks:getLessons', async (_, trackId) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('learning_lessons').filter((l: any) => l.trackId === trackId)
+    } else {
+      return getDatabase().select().from(schema.learningLessons).where(eq(schema.learningLessons.trackId, trackId)).all()
+    }
+  })
+
+  ipcMain.handle('learningTracks:updateLesson', async (_, id, updates) => {
+    if (isFallbackDatabase()) {
+      const updated = updateFallback('learning_lessons', id, updates)
+      
+      if (updates.status === 'done' && updated) {
+        const lessons = getFallbackCollection('learning_lessons').filter((l: any) => l.trackId === updated.trackId)
+        const doneCount = lessons.filter((l: any) => l.status === 'done').length
+        
+        updateFallback('learning_tracks', updated.trackId, {
+          completedLessons: doneCount,
+          currentLesson: Math.min(lessons.length, doneCount + 1),
+          lastStudiedAt: new Date().toISOString()
+        })
+      }
+      return updated
+    } else {
+      const db = getDatabase()
+      db.update(schema.learningLessons).set(updates as any).where(eq(schema.learningLessons.id, id)).run()
+      const updated = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.id, id)).get()
+      
+      if (updates.status === 'done' && updated) {
+        const lessons = db.select().from(schema.learningLessons).where(eq(schema.learningLessons.trackId, updated.trackId)).all()
+        const doneCount = lessons.filter((l: any) => l.status === 'done').length
+        
+        db.update(schema.learningTracks).set({
+          completedLessons: doneCount,
+          currentLesson: Math.min(lessons.length, doneCount + 1),
+          lastStudiedAt: new Date()
+        } as any).where(eq(schema.learningTracks.id, updated.trackId)).run()
+      }
+      return updated
+    }
+  })
+
+  // ==========================================
+  // XP System Handlers
+  // ==========================================
+  ipcMain.handle('xp:getLedger', async () => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('xp_ledger')
+    } else {
+      return getDatabase().select().from(schema.xpLedger).all()
+    }
+  })
+
+  ipcMain.handle('xp:addXP', async (_, amount, reason, refId, refType) => {
+    const now = new Date()
+    const dateStr = now.toISOString().split('T')[0]
+
+    let currentXP = 0
+    let currentLevel = 1
+    let profileId = 1
+
+    if (isFallbackDatabase()) {
+      const profiles = getFallbackCollection('user_profile')
+      const p = profiles[0] || { id: 1, totalXP: 0, level: 1 }
+      currentXP = p.totalXP || 0
+      currentLevel = p.level || 1
+      profileId = p.id
+    } else {
+      const db = getDatabase()
+      const p = db.select().from(schema.userProfile).get()
+      if (p) {
+        currentXP = p.totalXP
+        currentLevel = p.level
+        profileId = p.id
+      }
+    }
+
+    const nextXP = currentXP + amount
+    
+    let level = 1
+    let xpForPrevLevels = 0
+    while (nextXP >= xpForPrevLevels + level * 100) {
+      xpForPrevLevels += level * 100
+      level++
+    }
+
+    const leveledUp = level > currentLevel
+
+    if (isFallbackDatabase()) {
+      updateFallback('user_profile', profileId, {
+        totalXP: nextXP,
+        level
+      })
+      insertFallback('xp_ledger', {
+        amount,
+        reason,
+        refId: refId || null,
+        refType: refType || null,
+        totalAfter: nextXP,
+        date: dateStr
+      })
+    } else {
+      const db = getDatabase()
+      db.update(schema.userProfile).set({
+        totalXP: nextXP,
+        level
+      }).where(eq(schema.userProfile.id, profileId)).run()
+
+      db.insert(schema.xpLedger).values({
+        amount,
+        reason,
+        referenceId: refId || null,
+        referenceType: refType || null,
+        totalAfter: nextXP,
+        date: dateStr,
+        createdAt: now
+      } as any).run()
+    }
+
+    return {
+      amount,
+      totalXP: nextXP,
+      level,
+      leveledUp
+    }
+  })
+
+  // ==========================================
+  // Energy Logs Handlers
+  // ==========================================
+  ipcMain.handle('energy:getEnergyLogs', async (_, startDate, endDate) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('energy_logs').filter((l: any) => l.date >= startDate && l.date <= endDate)
+    } else {
+      return getDatabase().select().from(schema.energyLogs).all()
+    }
+  })
+
+  ipcMain.handle('energy:logEnergy', async (_, hour, level) => {
+    const dateStr = new Date().toISOString().split('T')[0]
+    if (isFallbackDatabase()) {
+      const logs = getFallbackCollection('energy_logs')
+      const existing = logs.find((l: any) => l.date === dateStr && l.hour === hour)
+      if (existing) {
+        return updateFallback('energy_logs', existing.id, { energyLevel: level })
+      } else {
+        return insertFallback('energy_logs', { date: dateStr, hour, energyLevel: level })
+      }
+    } else {
+      const db = getDatabase()
+      const existing = db.select().from(schema.energyLogs).where(
+        and(eq(schema.energyLogs.date, dateStr), eq(schema.energyLogs.hour, hour))
+      ).get()
+      if (existing) {
+        db.update(schema.energyLogs).set({ energyLevel: level }).where(eq(schema.energyLogs.id, existing.id)).run()
+        return db.select().from(schema.energyLogs).where(eq(schema.energyLogs.id, existing.id)).get()
+      } else {
+        const result = db.insert(schema.energyLogs).values({ date: dateStr, hour, energyLevel: level }).run()
+        return db.select().from(schema.energyLogs).where(eq(schema.energyLogs.id, Number(result.lastInsertRowid))).get()
+      }
+    }
+  })
+
+  // ==========================================
+  // User Profile Handlers
+  // ==========================================
+  ipcMain.handle('userProfile:getProfile', async () => {
+    if (isFallbackDatabase()) {
+      const profiles = getFallbackCollection('user_profile')
+      return profiles[0] || insertFallback('user_profile', {
+        id: 1,
+        name: 'عمر',
+        avatar: '🧠',
+        level: 1,
+        totalXP: 0,
+        currentStreakDays: 0,
+        longestStreakDays: 0,
+        pinchProfile: JSON.stringify({ p: 8, i: 7, n: 6, c: 5, h: 9 }),
+        peakHour: 10,
+        avgDailyEnergy: 3.0,
+        onboardingCompleted: false
+      })
+    } else {
+      const db = getDatabase()
+      let p = db.select().from(schema.userProfile).get()
+      if (!p) {
+        const now = new Date()
+        db.insert(schema.userProfile).values({
+          id: 1,
+          name: 'عمر',
+          avatar: '🧠',
+          level: 1,
+          totalXP: 0,
+          currentStreakDays: 0,
+          longestStreakDays: 0,
+          pinchProfile: JSON.stringify({ p: 8, i: 7, n: 6, c: 5, h: 9 }),
+          peakHour: 10,
+          avgDailyEnergy: 3.0,
+          onboardingCompleted: false,
+          createdAt: now
+        } as any).run()
+        p = db.select().from(schema.userProfile).get()
+      }
+      return p
+    }
+  })
+
+  ipcMain.handle('userProfile:updateProfile', async (_, updates) => {
+    if (isFallbackDatabase()) {
+      return updateFallback('user_profile', 1, updates)
+    } else {
+      const db = getDatabase()
+      db.update(schema.userProfile).set(updates).where(eq(schema.userProfile.id, 1)).run()
+      return db.select().from(schema.userProfile).where(eq(schema.userProfile.id, 1)).get()
+    }
+  })
+
+  // ==========================================
+  // Context Snapshots Handlers
+  // ==========================================
+  ipcMain.handle('contextSnapshots:getLatestSnapshot', async (_, taskId, projectId, trackId) => {
+    if (isFallbackDatabase()) {
+      const list = getFallbackCollection('context_snapshots')
+      const filtered = list.filter((s: any) => {
+        if (taskId && s.taskId !== taskId) return false
+        if (projectId && s.projectId !== projectId) return false
+        if (trackId && s.learningTrackId !== trackId) return false
+        return true
+      })
+      filtered.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      return filtered[0]
+    } else {
+      const db = getDatabase()
+      const query = db.select().from(schema.contextSnapshots)
+      const conditions: any[] = []
+      if (taskId) conditions.push(eq(schema.contextSnapshots.taskId, taskId))
+      if (projectId) conditions.push(eq(schema.contextSnapshots.projectId, projectId))
+      if (trackId) conditions.push(eq(schema.contextSnapshots.learningTrackId, trackId))
+      
+      if (conditions.length > 0) {
+        return query.where(and(...conditions)).orderBy(sql`${schema.contextSnapshots.createdAt} DESC`).get()
+      }
+      return query.orderBy(sql`${schema.contextSnapshots.createdAt} DESC`).get()
+    }
+  })
+
+  ipcMain.handle('contextSnapshots:saveSnapshot', async (_, snapshotData) => {
+    if (isFallbackDatabase()) {
+      return insertFallback('context_snapshots', {
+        taskId: snapshotData.taskId || null,
+        projectId: snapshotData.projectId || null,
+        learningTrackId: snapshotData.learningTrackId || null,
+        snapshot: snapshotData.snapshot
+      })
+    } else {
+      const db = getDatabase()
+      const result = db.insert(schema.contextSnapshots).values({
+        taskId: snapshotData.taskId || null,
+        projectId: snapshotData.projectId || null,
+        learningTrackId: snapshotData.learningTrackId || null,
+        snapshot: snapshotData.snapshot,
+        createdAt: new Date()
+      } as any).run()
+      return db.select().from(schema.contextSnapshots).where(eq(schema.contextSnapshots.id, Number(result.lastInsertRowid))).get()
     }
   })
 

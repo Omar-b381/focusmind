@@ -3,9 +3,11 @@ import {
   LayoutDashboard, 
   CheckSquare, 
   FolderOpen, 
+  BookOpen,
   Timer, 
   CalendarRange, 
   Sparkles, 
+  Award,
   Bot, 
   BarChart3, 
   Settings,
@@ -14,6 +16,8 @@ import {
 import { clsx } from 'clsx'
 import { motion } from 'framer-motion'
 import Avatar from '../ui/Avatar'
+import XPBar from '../gamification/XPBar'
+import { useUserProfileQuery } from '../../hooks/useXP'
 
 interface SidebarItem {
   id: ActiveTab
@@ -25,9 +29,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'dashboard', label: 'الرئيسية', icon: LayoutDashboard },
   { id: 'tasks', label: 'المهام اليومية', icon: CheckSquare },
   { id: 'projects', label: 'المشاريع', icon: FolderOpen },
+  { id: 'learning', label: 'مسارات التعلم', icon: BookOpen },
   { id: 'focus', label: 'جلسة تركيز', icon: Timer },
   { id: 'habits', label: 'بناء العادات', icon: CalendarRange },
   { id: 'dopamine', label: 'قائمة الدوبامين', icon: Sparkles },
+  { id: 'achievements', label: 'الأوسمة والـ XP', icon: Award },
   { id: 'coach', label: 'المرشد الذكي', icon: Bot },
   { id: 'analytics', label: 'الإحصائيات', icon: BarChart3 },
   { id: 'settings', label: 'الإعدادات', icon: Settings },
@@ -35,12 +41,16 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
 
 export default function Sidebar() {
   const { activeTab, setActiveTab } = useAppStore()
+  const { data: profile } = useUserProfileQuery()
+
+  const userName = profile?.name || 'عمر'
+  const userAvatar = profile?.avatar || '🧠'
 
   return (
     <aside className="w-64 h-screen bg-[#1a1d27]/90 border-l border-[#2d3252] flex flex-col justify-between shrink-0 glass z-10">
-      <div>
+      <div className="flex flex-col h-[calc(100vh-140px)] overflow-y-auto scrollbar-thin">
         {/* Brand Logo */}
-        <div className="h-16 flex items-center px-6 gap-3 border-b border-[#2d3252]/50">
+        <div className="h-16 flex items-center px-6 gap-3 border-b border-[#2d3252]/50 shrink-0">
           <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-400 flex items-center justify-center glow-primary">
             <Brain className="h-5 w-5 text-white" />
           </div>
@@ -87,12 +97,15 @@ export default function Sidebar() {
         </nav>
       </div>
 
-      {/* User profile / Bottom bar */}
-      <div className="p-4 border-t border-[#2d3252]/50 flex items-center gap-3 bg-[#131620]/40">
-        <Avatar name="عمر" size="md" />
-        <div className="overflow-hidden">
-          <p className="text-sm font-semibold text-white font-tajawal truncate">عمر</p>
-          <p className="text-xs text-indigo-400 font-tajawal leading-none">مستكشف التركيز</p>
+      {/* User profile / Bottom bar with XP */}
+      <div className="p-4 border-t border-[#2d3252]/50 bg-[#131620]/40 space-y-4 shrink-0">
+        <XPBar />
+        <div className="flex items-center gap-3">
+          <Avatar name={userName} emoji={userAvatar} size="md" />
+          <div className="overflow-hidden">
+            <p className="text-sm font-semibold text-white font-tajawal truncate">{userName}</p>
+            <p className="text-xs text-indigo-400 font-tajawal leading-none">مستكشف التركيز</p>
+          </div>
         </div>
       </div>
     </aside>
