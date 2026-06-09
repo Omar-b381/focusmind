@@ -88,6 +88,16 @@ export const api = {
     getLessons: (trackId: number) => ipcRenderer.invoke('learningTracks:getLessons', trackId),
     updateLesson: (id: number, lesson: any) => ipcRenderer.invoke('learningTracks:updateLesson', id, lesson),
   },
+  // Learning Materials
+  learningMaterials: {
+    getMaterials: (trackId?: number | null) => ipcRenderer.invoke('learningMaterials:getMaterials', trackId),
+    getMaterialById: (id: number) => ipcRenderer.invoke('learningMaterials:getMaterialById', id),
+    createMaterial: (material: any) => ipcRenderer.invoke('learningMaterials:createMaterial', material),
+    updateMaterial: (id: number, updates: any) => ipcRenderer.invoke('learningMaterials:updateMaterial', id, updates),
+    deleteMaterial: (id: number) => ipcRenderer.invoke('learningMaterials:deleteMaterial', id),
+    generateSummaryAndConceptMap: (id: number) => ipcRenderer.invoke('learningMaterials:generateSummary', id),
+  },
+
   // XP System
   xp: {
     getLedger: () => ipcRenderer.invoke('xp:getLedger'),

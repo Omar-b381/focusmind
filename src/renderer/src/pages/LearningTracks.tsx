@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { 
   BookOpen, Plus, Sparkles, AlertCircle, Trash2, 
   CheckCircle2, ExternalLink, Compass, Clock, Award,
-  Play, Check, PlusCircle
+  Play, Check, PlusCircle, FileText, Link as LinkIcon, Sparkles as BrainIcon
 } from 'lucide-react'
 import { 
   useTracksQuery, 
@@ -15,6 +15,15 @@ import {
 } from '../hooks/useLearningTracks'
 import { useAddXPMutation } from '../hooks/useXP'
 import { useTasksQuery, useCreateTaskMutation, useUpdateTaskMutation } from '../hooks/useTasks'
+import { 
+  useMaterialsQuery, 
+  useCreateMaterialMutation, 
+  useUpdateMaterialMutation, 
+  useDeleteMaterialMutation, 
+  useGenerateSummaryMutation 
+} from '../hooks/useLearningMaterials'
+import ConceptMap3D from '../components/learning/ConceptMap3D'
+import ReactMarkdown from 'react-markdown'
 import { useAppStore } from '../stores/app.store'
 import { useFocusStore } from '../stores/focus.store'
 import Button from '../components/ui/Button'
@@ -309,6 +318,24 @@ function TrackDetails({ track }: { track: any }) {
   const updateTaskMutation = useUpdateTaskMutation()
   const addXPMutation = useAddXPMutation()
 
+  // Materials Vault hooks
+  const { data: materials = [] } = useMaterialsQuery(track.id)
+  const createMaterialMutation = useCreateMaterialMutation()
+  const updateMaterialMutation = useUpdateMaterialMutation()
+  const deleteMaterialMutation = useDeleteMaterialMutation()
+  const generateSummaryMutation = useGenerateSummaryMutation()
+
+  // Materials Vault state
+  const [activeSection, setActiveSection] = useState<'lessons_tasks' | 'vault'>('lessons_tasks')
+  const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null)
+  const [isAddMaterialOpen, setAddMaterialOpen] = useState(false)
+
+  // Add Material Form state
+  const [matTitle, setMatTitle] = useState('')
+  const [matType, setMatType] = useState<'text_input' | 'link' | 'pdf'>('text_input')
+  const [matContent, setMatContent] = useState('')
+  const [matFilePath, setMatFilePath] = useState('')
+
   const [bookmark, setBookmark] = useState(track.lastPosition || '')
   const [isSavingBookmark, setSavingBookmark] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
@@ -417,7 +444,40 @@ function TrackDetails({ track }: { track: any }) {
     })
   }
 
+  const handleAddMaterial = () => {
+    if (!matTitle.trim()) return
+    createMaterialMutation.mutate({
+      title: matTitle,
+      fileType: matType,
+      content: matType === 'text_input' ? matContent : null,
+      filePath: matType === 'pdf' ? matFilePath : matType === 'link' ? matContent : null,
+      learningTrackId: track.id,
+      status: 'pending'
+    }, {
+      onSuccess: () => {
+        setAddMaterialOpen(false)
+        resetMatForm()
+      }
+    })
+  }
+
+  const resetMatForm = () => {
+    setMatTitle('')
+    setMatType('text_input')
+    setMatContent('')
+    setMatFilePath('')
+  }
+
+  const handleDeleteMaterial = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirm('هل أنت متأكد من حذف هذا المستند؟')) {
+      deleteMaterialMutation.mutate(id)
+      if (selectedMaterialId === id) setSelectedMaterialId(null)
+    }
+  }
+
   const trackTasks = tasks.filter(t => t.learningTrackId === track.id)
+  const selectedMaterial = materials.find(m => m.id === selectedMaterialId)
 
   return (
     <Card className="glass p-6 space-y-6">
@@ -509,179 +569,472 @@ function TrackDetails({ track }: { track: any }) {
         </Card>
       </div>
 
-      {/* Side by side Lessons and Tasks */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-dark-border">
-        {/* Lessons List Section */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-bold text-gray-200 font-cairo">الدروس الحالية 📖</h3>
-          
-          {isLoading ? (
-            <div className="text-center py-4 text-gray-400">جاري تحميل الدروس...</div>
-          ) : !lessons || lessons.length === 0 ? (
-            <div className="text-center py-6 text-gray-400 border border-dashed border-dark-border rounded-2xl">
-              لا توجد دروس مخصصة. سيتم إنشاء الدروس تلقائياً بناءً على عدد دروس المسار.
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-              {lessons.map((lesson) => {
-                const isDone = lesson.status === 'done'
-                const isCurrent = track.currentLesson === lesson.order
+      {/* Section Switcher Tabs */}
+      <div className="flex border-b border-dark-border gap-4 pb-1">
+        <button
+          onClick={() => setActiveSection('lessons_tasks')}
+          className={`pb-2.5 text-xs font-bold border-b-2 transition-all font-cairo flex items-center gap-1.5 ${
+            activeSection === 'lessons_tasks' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-gray-400'
+          }`}
+        >
+          <span>📖</span>
+          <span>الخطة الدراسية والمهام</span>
+        </button>
+        <button
+          onClick={() => setActiveSection('vault')}
+          className={`pb-2.5 text-xs font-bold border-b-2 transition-all font-cairo flex items-center gap-1.5 ${
+            activeSection === 'vault' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-gray-400'
+          }`}
+        >
+          <span>📁</span>
+          <span>حقيبة الملفات والملخصات</span>
+        </button>
+      </div>
 
+      {activeSection === 'lessons_tasks' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+          {/* Lessons List Section */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold text-gray-200 font-cairo">الدروس الحالية 📖</h3>
+            
+            {isLoading ? (
+              <div className="text-center py-4 text-gray-400">جاري تحميل الدروس...</div>
+            ) : !lessons || lessons.length === 0 ? (
+              <div className="text-center py-6 text-gray-400 border border-dashed border-dark-border rounded-2xl">
+                لا توجد دروس مخصصة. سيتم إنشاء الدروس تلقائياً بناءً على عدد دروس المسار.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                {lessons.map((lesson) => {
+                  const isDone = lesson.status === 'done'
+                  const isCurrent = track.currentLesson === lesson.order
+
+                  return (
+                    <div 
+                      key={lesson.id}
+                      className={`flex justify-between items-center p-3 rounded-xl border transition-all ${
+                        isDone 
+                          ? 'bg-emerald-950/10 border-emerald-500/20 text-gray-400' 
+                          : isCurrent 
+                            ? 'bg-indigo-500/5 border-indigo-500/30 glow-primary' 
+                            : 'bg-dark-surface border-dark-border'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => handleCompleteLesson(lesson)}
+                          className={`p-1.5 rounded-lg border transition ${
+                            isDone 
+                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' 
+                              : 'bg-dark-bg border-dark-border hover:border-indigo-500 text-gray-600 hover:text-indigo-400'
+                          }`}
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                        </button>
+                        <div>
+                          <h4 className={`text-sm font-semibold font-tajawal ${isCurrent ? 'text-white' : 'text-gray-300'}`}>
+                            {lesson.title}
+                          </h4>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5 font-cairo">
+                            <span>الدرس {lesson.order}</span>
+                            {lesson.estimatedMinutes && <span>• {lesson.estimatedMinutes} دقيقة مقترحة</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {isCurrent && (
+                          <span className="text-[10px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full font-cairo font-semibold animate-pulse shrink-0">
+                            النشط
+                          </span>
+                        )}
+                        
+                        {!isDone && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            {/* Convert to actionable practice task */}
+                            <button
+                              onClick={() => handleConvertLessonToTask(lesson)}
+                              title="حول لتطبيق عملي"
+                              className="p-1.5 hover:bg-orange-500/10 rounded-lg text-orange-400 hover:text-orange-300 border border-transparent hover:border-orange-500/20 transition flex items-center justify-center"
+                            >
+                              <PlusCircle className="h-4 w-4" />
+                            </button>
+                            
+                            {/* Start Focus Timer */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleStartFocusLesson(lesson)}
+                              className="h-8 px-2 hover:bg-orange-500/10 text-orange-400 font-cairo text-xs gap-1 border border-transparent hover:border-orange-500/25 shrink-0"
+                              icon={<Play className="h-3 w-3 fill-orange-400" />}
+                            >
+                              بومودورو
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Tasks List Section */}
+          <div className="space-y-4 flex flex-col h-full">
+            <h3 className="text-sm font-bold text-gray-200 font-cairo">المهام الدراسية والتطبيق 🎯</h3>
+            
+            <div className="space-y-2 flex-1 max-h-[240px] overflow-y-auto pr-1">
+              {trackTasks.map((task) => {
+                const isDone = task.status === 'done'
+                
                 return (
                   <div 
-                    key={lesson.id}
+                    key={task.id}
                     className={`flex justify-between items-center p-3 rounded-xl border transition-all ${
                       isDone 
                         ? 'bg-emerald-950/10 border-emerald-500/20 text-gray-400' 
-                        : isCurrent 
-                          ? 'bg-indigo-500/5 border-indigo-500/30 glow-primary' 
-                          : 'bg-dark-surface border-dark-border'
+                        : 'bg-dark-surface border-dark-border'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <button 
-                        onClick={() => handleCompleteLesson(lesson)}
+                        onClick={() => handleToggleTask(task)}
                         className={`p-1.5 rounded-lg border transition ${
                           isDone 
                             ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' 
                             : 'bg-dark-bg border-dark-border hover:border-indigo-500 text-gray-600 hover:text-indigo-400'
                         }`}
                       >
-                        <CheckCircle2 className="h-4 w-4" />
+                        <Check className="h-4 w-4" />
                       </button>
                       <div>
-                        <h4 className={`text-sm font-semibold font-tajawal ${isCurrent ? 'text-white' : 'text-gray-300'}`}>
-                          {lesson.title}
+                        <h4 className={`text-sm font-semibold font-tajawal ${isDone ? 'line-through text-gray-500' : 'text-white'}`}>
+                          {task.title}
                         </h4>
                         <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5 font-cairo">
-                          <span>الدرس {lesson.order}</span>
-                          {lesson.estimatedMinutes && <span>• {lesson.estimatedMinutes} دقيقة مقترحة</span>}
+                          <span>التركيز: {task.actualMinutes || 0} د / {task.estimatedMinutes || 25} د</span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {isCurrent && (
-                        <span className="text-[10px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full font-cairo font-semibold animate-pulse shrink-0">
-                          النشط
-                        </span>
-                      )}
-                      
-                      {!isDone && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          {/* Convert to actionable practice task */}
-                          <button
-                            onClick={() => handleConvertLessonToTask(lesson)}
-                            title="حول لتطبيق عملي"
-                            className="p-1.5 hover:bg-orange-500/10 rounded-lg text-orange-400 hover:text-orange-300 border border-transparent hover:border-orange-500/20 transition flex items-center justify-center"
-                          >
-                            <PlusCircle className="h-4 w-4" />
-                          </button>
-                          
-                          {/* Start Focus Timer */}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleStartFocusLesson(lesson)}
-                            className="h-8 px-2 hover:bg-orange-500/10 text-orange-400 font-cairo text-xs gap-1 border border-transparent hover:border-orange-500/25 shrink-0"
-                            icon={<Play className="h-3 w-3 fill-orange-400" />}
-                          >
-                            بومودورو
-                          </Button>
-                        </div>
-                      )}
-                    </div>
+                    {!isDone && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleStartFocusTask(task)}
+                        className="h-8 px-2 hover:bg-indigo-500/10 text-indigo-400 font-cairo text-xs gap-1 border border-transparent hover:border-indigo-500/25 shrink-0"
+                        icon={<Play className="h-3 w-3 fill-indigo-400" />}
+                      >
+                        بومودورو
+                      </Button>
+                    )}
                   </div>
                 )
               })}
-            </div>
-          )}
-        </div>
 
-        {/* Tasks List Section */}
-        <div className="space-y-4 flex flex-col h-full">
-          <h3 className="text-lg font-bold text-gray-200 font-cairo">المهام الدراسية والتطبيق 🎯</h3>
-          
-          <div className="space-y-2 flex-1 max-h-[240px] overflow-y-auto pr-1">
-            {trackTasks.map((task) => {
-              const isDone = task.status === 'done'
-              
-              return (
-                <div 
-                  key={task.id}
-                  className={`flex justify-between items-center p-3 rounded-xl border transition-all ${
-                    isDone 
-                      ? 'bg-emerald-950/10 border-emerald-500/20 text-gray-400' 
-                      : 'bg-dark-surface border-dark-border'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <button 
-                      onClick={() => handleToggleTask(task)}
-                      className={`p-1.5 rounded-lg border transition ${
-                        isDone 
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' 
-                          : 'bg-dark-bg border-dark-border hover:border-indigo-500 text-gray-600 hover:text-indigo-400'
-                      }`}
-                    >
-                      <Check className="h-4 w-4" />
-                    </button>
-                    <div>
-                      <h4 className={`text-sm font-semibold font-tajawal ${isDone ? 'line-through text-gray-500' : 'text-white'}`}>
-                        {task.title}
-                      </h4>
-                      <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5 font-cairo">
-                        <span>التركيز: {task.actualMinutes || 0} د / {task.estimatedMinutes || 25} د</span>
+              {trackTasks.length === 0 && (
+                <div className="text-center py-8 text-xs text-gray-500 border border-dashed border-dark-border rounded-2xl font-tajawal leading-relaxed">
+                  لا توجد مهام دراسية مرتبطة بهذا المسار حالياً.
+                  <br />
+                  أضف مهمة تطبيقية (عملي) بالأسفل لتنفيذ ما تتعلمه!
+                </div>
+              )}
+            </div>
+
+            {/* Quick Task Creation Form */}
+            <div className="flex gap-2 border-t border-dark-border/40 pt-3 shrink-0">
+              <Input
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddTask()}
+                placeholder="إضافة مهمة دراسية جديدة..."
+                className="w-full text-xs font-tajawal"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleAddTask}
+                disabled={!newTaskTitle.trim()}
+                className="text-xs h-9 shrink-0 gap-1 font-cairo"
+                icon={<PlusCircle className="h-4 w-4 text-indigo-400" />}
+              >
+                إضافة
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2 items-start">
+          {/* Materials List */}
+          <div className="lg:col-span-1 space-y-3">
+            <div className="flex justify-between items-center">
+              <h4 className="text-xs font-bold text-gray-300 font-cairo">ملفات المادة ({materials.length})</h4>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 text-[10px] font-cairo"
+                onClick={() => setAddMaterialOpen(true)}
+                icon={<Plus className="h-3 w-3 text-indigo-400" />}
+              >
+                إضافة ملف
+              </Button>
+            </div>
+
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+              {materials.map((mat) => {
+                const isSelected = mat.id === selectedMaterialId
+                const typeIcon = mat.fileType === 'link' ? <LinkIcon className="h-4 w-4 text-indigo-400" /> : <FileText className="h-4 w-4 text-indigo-400" />
+                
+                const statusConfig = {
+                  pending: { label: 'مضاف حديثاً', className: 'bg-slate-500/10 text-slate-400 border-slate-500/20' },
+                  reading: { label: 'قيد القراءة 📖', className: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20' },
+                  summarized: { label: 'ملخص بالذكاء ✨', className: 'bg-purple-500/10 text-purple-300 border-purple-500/20' },
+                  read: { label: 'مكتمل ✅', className: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' }
+                }
+                const statusDetails = statusConfig[mat.status as keyof typeof statusConfig] || statusConfig.pending
+
+                return (
+                  <div
+                    key={mat.id}
+                    onClick={() => setSelectedMaterialId(mat.id)}
+                    className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-500/5 glow-primary'
+                        : 'border-dark-border bg-dark-surface hover:border-gray-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <span className="p-1.5 bg-[#141621] rounded-lg border border-dark-border">
+                        {typeIcon}
+                      </span>
+                      <div className="truncate text-right">
+                        <h5 className="text-xs font-bold text-white truncate font-tajawal">{mat.title}</h5>
+                        <span className={`inline-block mt-1 text-[9px] border px-2 py-0.5 rounded-full font-cairo font-bold ${statusDetails.className}`}>
+                          {statusDetails.label}
+                        </span>
                       </div>
                     </div>
-                  </div>
-
-                  {!isDone && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleStartFocusTask(task)}
-                      className="h-8 px-2 hover:bg-indigo-500/10 text-indigo-400 font-cairo text-xs gap-1 border border-transparent hover:border-indigo-500/25 shrink-0"
-                      icon={<Play className="h-3 w-3 fill-indigo-400" />}
+                    
+                    <button
+                      onClick={(e) => handleDeleteMaterial(mat.id, e)}
+                      className="p-1 hover:bg-red-500/20 rounded text-gray-400 hover:text-red-400 transition shrink-0"
                     >
-                      بومودورو
-                    </Button>
-                  )}
-                </div>
-              )
-            })}
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )
+              })}
 
-            {trackTasks.length === 0 && (
-              <div className="text-center py-8 text-xs text-gray-500 border border-dashed border-dark-border rounded-2xl font-tajawal leading-relaxed">
-                لا توجد مهام دراسية مرتبطة بهذا المسار حالياً.
-                <br />
-                أضف مهمة تطبيقية (عملي) بالأسفل لتنفيذ ما تتعلمه!
-              </div>
-            )}
+              {materials.length === 0 && (
+                <div className="text-center py-10 text-xs text-gray-500 border border-dashed border-dark-border rounded-2xl font-tajawal leading-relaxed">
+                  لا توجد ملفات أو مستندات مرفقة حالياً.
+                  <br />
+                  أضف مقالاً أو نصاً لتقوم بتلخيصه واستعراضه!
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Quick Task Creation Form */}
-          <div className="flex gap-2 border-t border-dark-border/40 pt-3 shrink-0">
+          {/* Active Material Viewer */}
+          <div className="lg:col-span-2">
+            {selectedMaterial ? (
+              <Card className="bg-[#1a1d27] p-5 border border-dark-border space-y-4 text-right">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b border-dark-border pb-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-white font-cairo">{selectedMaterial.title}</h4>
+                    <span className="text-[10px] text-gray-400 font-tajawal mt-0.5 block">
+                      نوع الملف: {selectedMaterial.fileType === 'pdf' ? 'كتاب/مستند PDF' : selectedMaterial.fileType === 'link' ? 'رابط خارجي' : 'نص مضاف يدوياً'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => updateMaterialMutation.mutate({
+                        id: selectedMaterial.id,
+                        updates: { status: selectedMaterial.status === 'read' ? 'reading' : 'read' }
+                      })}
+                      className={`px-3 py-1.5 rounded-xl border text-[10px] font-bold font-cairo transition ${
+                        selectedMaterial.status === 'read'
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                          : 'bg-dark-bg border-dark-border hover:border-gray-700 text-gray-300'
+                      }`}
+                    >
+                      {selectedMaterial.status === 'read' ? 'تمت قراءته ✅' : 'تعليم كمقروء'}
+                    </button>
+                    
+                    <button
+                      onClick={() => updateMaterialMutation.mutate({
+                        id: selectedMaterial.id,
+                        updates: { status: selectedMaterial.status === 'reading' ? 'pending' : 'reading' }
+                      })}
+                      className={`px-3 py-1.5 rounded-xl border text-[10px] font-bold font-cairo transition ${
+                        selectedMaterial.status === 'reading'
+                          ? 'bg-indigo-500/20 border-indigo-500 text-indigo-400'
+                          : 'bg-dark-bg border-dark-border hover:border-gray-700 text-gray-300'
+                      }`}
+                    >
+                      {selectedMaterial.status === 'reading' ? 'قيد القراءة 📖' : 'قيد القراءة'}
+                    </button>
+                  </div>
+                </div>
+
+                {selectedMaterial.status !== 'summarized' && !selectedMaterial.summary ? (
+                  <Card className="glass p-6 text-center space-y-4 border-dashed border-indigo-500/30 flex flex-col items-center">
+                    <BrainIcon className="h-9 w-9 text-indigo-400 animate-pulse" />
+                    <div className="space-y-1 max-w-sm">
+                      <h4 className="text-xs font-bold text-white font-cairo">توليد خريطة مفاهيم تفاعلية وملخص ذكي ✨</h4>
+                      <p className="text-[10px] text-gray-400 font-tajawal leading-relaxed">
+                        سنقوم بتحليل هذا النص بالذكاء الاصطناعي وتفكيكه إلى خريطة مفاهيم ثلاثية الأبعاد تدور في الفضاء لتصفحها والتفاعل معها بسهولة، بالإضافة لملخص كتابي مريح.
+                      </p>
+                    </div>
+                    <Button
+                      variant="dopamine"
+                      size="sm"
+                      onClick={() => generateSummaryMutation.mutate(selectedMaterial.id)}
+                      isLoading={generateSummaryMutation.isPending}
+                      className="text-xs font-cairo h-10 px-5"
+                      icon={<BrainIcon className="h-4 w-4" />}
+                    >
+                      ابدأ التلخيص الذكي
+                    </Button>
+                  </Card>
+                ) : (
+                  <div className="space-y-5">
+                    {/* 3D Concept Map */}
+                    {selectedMaterial.conceptMap && (
+                      <div className="space-y-2">
+                        <h5 className="text-[10px] font-bold text-indigo-300 font-cairo">الخريطة الذهنية التفاعلية ثلاثية الأبعاد 🌌</h5>
+                        <ConceptMap3D conceptMap={JSON.parse(selectedMaterial.conceptMap)} />
+                      </div>
+                    )}
+
+                    {/* AI Written Summary */}
+                    {selectedMaterial.summary && (
+                      <div className="space-y-2">
+                        <h5 className="text-[10px] font-bold text-indigo-300 font-cairo">الملخص الكتابي الميسر 📝</h5>
+                        <div className="p-3.5 bg-[#141621]/45 border border-[#2d3252]/30 rounded-xl overflow-y-auto max-h-[200px]">
+                          <ReactMarkdown className="text-xs leading-relaxed space-y-2 text-gray-300 font-tajawal select-text text-right prose prose-invert">
+                            {selectedMaterial.summary}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
+            ) : (
+              <Card className="glass p-12 text-center text-gray-400 border-dashed border-dark-border flex flex-col items-center justify-center space-y-3 h-[300px]">
+                <BrainIcon className="h-10 w-10 text-indigo-500/40" />
+                <h4 className="text-xs font-bold text-white font-cairo">حقيبة مستندات مسار التعلم 📁</h4>
+                <p className="max-w-xs text-[10px] leading-relaxed font-tajawal">
+                  اختر مستنداً أو مقالاً من القائمة الجانبية لتصفحه وتلخيصه بالذكاء الاصطناعي، أو أضف محتوى جديداً للبدء.
+                </p>
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Add Material Modal */}
+      <Modal
+        isOpen={isAddMaterialOpen}
+        onClose={() => {
+          setAddMaterialOpen(false)
+          resetMatForm()
+        }}
+        title="إرفاق مستند دراسي جديد 📁"
+        size="md"
+      >
+        <div className="space-y-4 py-2 text-right font-tajawal">
+          <div>
+            <label className="block text-xs font-bold text-gray-400 mb-1 font-cairo">عنوان المستند / المادة</label>
             <Input
-              value={newTaskTitle}
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddTask()}
-              placeholder="إضافة مهمة دراسية جديدة..."
-              className="w-full text-xs font-tajawal"
+              value={matTitle}
+              onChange={(e) => setMatTitle(e.target.value)}
+              placeholder="مثال: أساسيات الـ Flexbox أو مقال تعلم البرمجة"
+              className="w-full text-xs"
             />
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleAddTask}
-              disabled={!newTaskTitle.trim()}
-              className="text-xs h-9 shrink-0 gap-1 font-cairo"
-              icon={<PlusCircle className="h-4 w-4 text-indigo-400" />}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-400 mb-1 font-cairo">نوع المصدر</label>
+            <div className="flex gap-2">
+              {[
+                { type: 'text_input', label: 'كتابة/لصق نص ✍️' },
+                { type: 'link', label: 'رابط مقال/فيديو 🔗' },
+                { type: 'pdf', label: 'مسار ملف محلي 📄' }
+              ].map((t) => (
+                <button
+                  key={t.type}
+                  type="button"
+                  onClick={() => setMatType(t.type as any)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold border transition ${
+                    matType === t.type
+                      ? 'border-indigo-500 bg-indigo-500/10 text-white'
+                      : 'border-dark-border bg-dark-surface text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {matType === 'text_input' && (
+            <div>
+              <label className="block text-xs font-bold text-gray-400 mb-1 font-cairo">الصق المحتوى التعليمي هنا</label>
+              <textarea
+                value={matContent}
+                onChange={(e) => setMatContent(e.target.value)}
+                placeholder="الصق نص الفصل الدراسي، المقال، أو ملاحظاتك هنا..."
+                className="w-full bg-dark-surface border border-dark-border rounded-xl p-3 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-tajawal"
+                rows={6}
+              />
+            </div>
+          )}
+
+          {matType === 'link' && (
+            <div>
+              <label className="block text-xs font-bold text-gray-400 mb-1 font-cairo">رابط المقال أو الفيديو</label>
+              <Input
+                value={matContent}
+                onChange={(e) => setMatContent(e.target.value)}
+                placeholder="https://example.com/article"
+                className="w-full text-xs font-mono ltr text-left"
+              />
+            </div>
+          )}
+
+          {matType === 'pdf' && (
+            <div>
+              <label className="block text-xs font-bold text-gray-400 mb-1 font-cairo">مسار الملف المحلي (PDF/TXT)</label>
+              <Input
+                value={matFilePath}
+                onChange={(e) => setMatFilePath(e.target.value)}
+                placeholder="C:\Users\...\document.pdf"
+                className="w-full text-xs font-mono ltr text-left"
+              />
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-dark-border">
+            <Button variant="secondary" onClick={() => {
+              setAddMaterialOpen(false)
+              resetMatForm()
+            }}>
+              إلغاء
+            </Button>
+            <Button 
+              variant="primary" 
+              onClick={handleAddMaterial}
+              disabled={!matTitle.trim()}
             >
-              إضافة
+              حفظ وإرفاق
             </Button>
           </div>
         </div>
-      </div>
+      </Modal>
     </Card>
   )
 }

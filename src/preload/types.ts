@@ -297,3 +297,19 @@ export interface ContextSnapshot {
 export interface AppSettings {
   [key: string]: string
 }
+
+export interface LearningMaterial {
+  id: number
+  title: string
+  content: string | null
+  filePath: string | null
+  fileSize: number | null
+  fileType: string | null // 'pdf', 'txt', 'markdown', 'link', 'text_input'
+  learningTrackId: number | null
+  status: 'pending' | 'reading' | 'summarized' | 'read'
+  summary: string | null // markdown summary
+  conceptMap: string | null // JSON string of 3D nodes/links
+  createdAt: Date
+  updatedAt: Date | null
+}
+

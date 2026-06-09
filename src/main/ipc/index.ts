@@ -1089,6 +1089,208 @@ export function registerIPCHandlers(): void {
   })
 
   // ==========================================
+  // Learning Materials Handlers
+  // ==========================================
+  ipcMain.handle('learningMaterials:getMaterials', async (_, trackId) => {
+    if (isFallbackDatabase()) {
+      const materials = getFallbackCollection('learning_materials')
+      if (trackId) {
+        return materials.filter((m: any) => m.learningTrackId === trackId)
+      }
+      return materials
+    } else {
+      const db = getDatabase()
+      if (trackId) {
+        return db.select().from(schema.learningMaterials).where(eq(schema.learningMaterials.learningTrackId, trackId)).all()
+      }
+      return db.select().from(schema.learningMaterials).all()
+    }
+  })
+
+  ipcMain.handle('learningMaterials:getMaterialById', async (_, id) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('learning_materials').find((m: any) => m.id === id)
+    } else {
+      return getDatabase().select().from(schema.learningMaterials).where(eq(schema.learningMaterials.id, id)).get()
+    }
+  })
+
+  ipcMain.handle('learningMaterials:createMaterial', async (_, material) => {
+    const now = new Date()
+    if (isFallbackDatabase()) {
+      const newMaterial = insertFallback('learning_materials', {
+        ...material,
+        status: material.status || 'pending',
+        createdAt: now.toISOString()
+      })
+      return newMaterial
+    } else {
+      const db = getDatabase()
+      const result = db.insert(schema.learningMaterials).values({
+        ...material,
+        createdAt: now
+      } as any).run()
+      return db.select().from(schema.learningMaterials).where(eq(schema.learningMaterials.id, Number(result.lastInsertRowid))).get()
+    }
+  })
+
+  ipcMain.handle('learningMaterials:updateMaterial', async (_, id, updates) => {
+    const now = new Date()
+    if (isFallbackDatabase()) {
+      return updateFallback('learning_materials', id, {
+        ...updates,
+        updatedAt: now.toISOString()
+      })
+    } else {
+      const db = getDatabase()
+      db.update(schema.learningMaterials).set({
+        ...updates,
+        updatedAt: now
+      } as any).where(eq(schema.learningMaterials.id, id)).run()
+      return db.select().from(schema.learningMaterials).where(eq(schema.learningMaterials.id, id)).get()
+    }
+  })
+
+  ipcMain.handle('learningMaterials:deleteMaterial', async (_, id) => {
+    if (isFallbackDatabase()) {
+      deleteFallback('learning_materials', id)
+      return true
+    } else {
+      const result = getDatabase().delete(schema.learningMaterials).where(eq(schema.learningMaterials.id, id)).run()
+      return result.changes > 0
+    }
+  })
+
+  ipcMain.handle('learningMaterials:generateSummary', async (_, id) => {
+    let material: any
+    if (isFallbackDatabase()) {
+      material = getFallbackCollection('learning_materials').find((m: any) => m.id === id)
+    } else {
+      material = getDatabase().select().from(schema.learningMaterials).where(eq(schema.learningMaterials.id, id)).get()
+    }
+
+    if (!material) {
+      throw new Error(`Material with ID ${id} not found`)
+    }
+
+    const settings = getAppSettings()
+    const hasAIKey = settings.aiApiKey || settings.aiProvider === 'ollama'
+    let summaryText = ''
+    let conceptMapJson = ''
+
+    if (hasAIKey) {
+      try {
+        const provider = getAIProvider({
+          aiProvider: settings.aiProvider || 'gemini',
+          aiModel: settings.aiModel || 'gemini-1.5-flash',
+          aiApiKey: settings.aiApiKey || '',
+          aiCustomEndpoint: settings.aiCustomEndpoint
+        })
+
+        const contentToAnalyze = material.content || material.title
+        const prompt = `أنت خبير تعلم مخصص لعقول الـ ADHD. قمنا بتحميل ملف/نص تعليمي بعنوان "${material.title}".
+المطلوب منك هو:
+1. إنشاء ملخص غني وتفاعلي ومنظم جداً (Markdown) يسهل قراءته وفهمه دون تشتت (استخدم نقاط واضحة، تفاصيل هامة، وجداول إذا لزم الأمر).
+2. إنشاء خريطة مفاهيم ثلاثية الأبعاد (3D Concept Map) لتمثيل العلاقات بين الأفكار.
+
+يرجى إرجاع الإجابة بصيغة JSON فقط، بدون أي نصوص إضافية أو علامات كود (markdown fences). الهيكل المطلوب للـ JSON هو كالتالي:
+{
+  "summary": "ملخص كامل ومنسق بالماركداون هنا...",
+  "conceptMap": {
+    "nodes": [
+      {"id": "1", "label": "الفكرة الرئيسية", "val": 20, "group": 0, "description": "شرح مبسط للفكرة الرئيسية"},
+      {"id": "2", "label": "المفهوم الفرعي 1", "val": 12, "group": 1, "description": "شرح المفهوم الفرعي 1"},
+      {"id": "3", "label": "المفهوم الفرعي 2", "val": 12, "group": 2, "description": "شرح المفهوم الفرعي 2"}
+    ],
+    "links": [
+      {"source": "1", "target": "2"},
+      {"source": "1", "target": "3"}
+    ]
+  }
+}
+
+ملاحظات هامة جداً:
+- يجب أن تكون المعرفات (id) للفرع والمصدر في الروابط (links) مطابقة تماماً للمعرفات في العقد (nodes).
+- اجعل التسميات (labels) والملخص باللغة العربية بأسلوب شيق وجذاب يناسب مرضى ADHD.
+- العقد الرئيسية يجب أن تأخذ قيمة val أكبر (مثلاً 20)، والعقد المتوسطة (12)، والتفاصيل (6).
+- اجعل الحقول (groups) مختلفة لتلوين المسارات المختلفة (مثلاً 0 للفكرة الرئيسية، 1 للفرع الأول، 2 للفرع الثاني).
+
+محتوى النص المراد تلخيصه هو:
+${contentToAnalyze}
+`
+
+        const response = await provider.sendMessage([
+          { role: 'user', content: prompt }
+        ])
+
+        // Strip markdown blocks if any
+        let cleanJson = response.trim()
+        if (cleanJson.startsWith('```json')) {
+          cleanJson = cleanJson.substring(7)
+        }
+        if (cleanJson.startsWith('```')) {
+          cleanJson = cleanJson.substring(3)
+        }
+        if (cleanJson.endsWith('```')) {
+          cleanJson = cleanJson.substring(0, cleanJson.length - 3)
+        }
+        cleanJson = cleanJson.trim()
+
+        const parsed = JSON.parse(cleanJson)
+        summaryText = parsed.summary
+        conceptMapJson = JSON.stringify(parsed.conceptMap)
+      } catch (err) {
+        console.error('AI Summarization failed, using fallback:', err)
+      }
+    }
+
+    // Fallback if AI failed or API key missing
+    if (!summaryText || !conceptMapJson) {
+      summaryText = `### 📚 ملخص محلي: ${material.title}
+      
+* **الفكرة الأساسية:** هذا ملخص تم إنشاؤه محلياً كنسخة احتياطية. لتوليد ملخص متقدم بالذكاء الاصطناعي، يرجى تفعيل مفتاح الـ API في الإعدادات.
+* **النص المكتشف:** تم العثور على محتوى بطول ${material.content?.length || 0} حرف.
+* **كيف تتعلم هذا بكفاءة؟**
+  1. اقرأ الأفكار الكبرى أولاً.
+  2. استخدم خريطة المفاهيم ثلاثية الأبعاد الموضحة على اليسار للتنقل بين المفاهيم.
+  3. حول الأفكار الصعبة إلى مهام تطبيقية عملية.
+  4. خذ فترات استراحة قصيرة لتجديد الدوبامين.`
+
+      const mockMap = {
+        nodes: [
+          { id: '1', label: material.title, val: 20, group: 0, description: 'المفهوم الرئيسي للمادة الدراسية' },
+          { id: '2', label: 'مقدمة عامة', val: 12, group: 1, description: 'فهم الأساسيات والمصطلحات الأولى' },
+          { id: '3', label: 'العناصر الأساسية', val: 12, group: 2, description: 'المكونات والقواعد التي يقوم عليها الموضوع' },
+          { id: '4', label: 'التطبيق العملي', val: 12, group: 3, description: 'كيفية ترجمة هذا المفهوم إلى كود أو ممارسة فعلية' },
+          { id: '5', label: 'الأخطاء الشائعة', val: 12, group: 4, description: 'أشياء يجب تجنبها أثناء الدراسة والعمل' }
+        ],
+        links: [
+          { source: '1', target: '2' },
+          { source: '1', target: '3' },
+          { source: '1', target: '4' },
+          { source: '1', target: '5' }
+        ]
+      }
+      conceptMapJson = JSON.stringify(mockMap)
+    }
+
+    // Save back to DB
+    const updates = {
+      summary: summaryText,
+      conceptMap: conceptMapJson,
+      status: 'summarized'
+    }
+
+    if (isFallbackDatabase()) {
+      return updateFallback('learning_materials', id, updates)
+    } else {
+      const db = getDatabase()
+      db.update(schema.learningMaterials).set(updates as any).where(eq(schema.learningMaterials.id, id)).run()
+      return db.select().from(schema.learningMaterials).where(eq(schema.learningMaterials.id, id)).get()
+    }
+  })
+
+  // ==========================================
   // XP System Handlers
   // ==========================================
   ipcMain.handle('xp:getLedger', async () => {

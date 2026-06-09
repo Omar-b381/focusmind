@@ -14,3 +14,5 @@ export * from './dopamineLogs.schema';
 export * from './energyLogs.schema';
 export * from './xpLedger.schema';
 export * from './contextSnapshots.schema';
+export * from './materials.schema';
+

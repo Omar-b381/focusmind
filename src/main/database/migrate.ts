@@ -335,6 +335,23 @@ export function runMigrations(): void {
     created_at INTEGER NOT NULL
   )`);
 
+  // 19. learning_materials
+  db.run(sql`CREATE TABLE IF NOT EXISTS learning_materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    content TEXT,
+    file_path TEXT,
+    file_size INTEGER,
+    file_type TEXT,
+    track_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    summary TEXT,
+    concept_map TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER
+  )`);
+
+
   // Seed default data
   seedUserProfile();
   seedDopamineActivities();

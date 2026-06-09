@@ -16,7 +16,8 @@ import {
   ContextSnapshot,
   AppSettings,
   LearningTrack,
-  LearningLesson
+  LearningLesson,
+  LearningMaterial
 } from './types'
 
 export type {
@@ -119,6 +120,14 @@ declare global {
         deleteTrack: (id: number) => Promise<boolean>
         getLessons: (trackId: number) => Promise<LearningLesson[]>
         updateLesson: (id: number, lesson: Partial<LearningLesson>) => Promise<LearningLesson>
+      }
+      learningMaterials: {
+        getMaterials: (trackId?: number | null) => Promise<LearningMaterial[]>
+        getMaterialById: (id: number) => Promise<LearningMaterial | undefined>
+        createMaterial: (material: Partial<LearningMaterial>) => Promise<LearningMaterial>
+        updateMaterial: (id: number, updates: Partial<LearningMaterial>) => Promise<LearningMaterial>
+        deleteMaterial: (id: number) => Promise<boolean>
+        generateSummaryAndConceptMap: (id: number) => Promise<LearningMaterial>
       }
       xp: {
         getLedger: () => Promise<XPLedgerEntry[]>

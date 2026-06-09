@@ -21,6 +21,7 @@ interface FallbackData {
   user_profile: any[]
   learning_tracks: any[]
   learning_lessons: any[]
+  learning_materials: any[]
 }
 
 let dataFilePath: string
@@ -40,17 +41,25 @@ export function initFallbackDatabase(): void {
       const content = readFileSync(filePath, 'utf-8')
       dataCache = JSON.parse(content)
       // Double check if v2 keys exist, if not reset/extend
-      if (dataCache && !dataCache.user_profile) {
-        dataCache.user_profile = getInitialProfile()
-        dataCache.learning_tracks = []
-        dataCache.learning_lessons = []
-        dataCache.dopamine_logs = []
-        dataCache.energy_logs = []
-        dataCache.xp_ledger = []
-        dataCache.context_snapshots = []
-        dataCache.achievements = getInitialAchievements()
-        dataCache.dopamine_activities = getInitialDopamine()
-        saveData()
+      if (dataCache) {
+        let changed = false
+        if (!dataCache.user_profile) {
+          dataCache.user_profile = getInitialProfile()
+          dataCache.learning_tracks = []
+          dataCache.learning_lessons = []
+          dataCache.dopamine_logs = []
+          dataCache.energy_logs = []
+          dataCache.xp_ledger = []
+          dataCache.context_snapshots = []
+          dataCache.achievements = getInitialAchievements()
+          dataCache.dopamine_activities = getInitialDopamine()
+          changed = true
+        }
+        if (!dataCache.learning_materials) {
+          dataCache.learning_materials = []
+          changed = true
+        }
+        if (changed) saveData()
       }
       return
     } catch (e) {
@@ -77,7 +86,8 @@ export function initFallbackDatabase(): void {
     context_snapshots: [],
     user_profile: getInitialProfile(),
     learning_tracks: [],
-    learning_lessons: []
+    learning_lessons: [],
+    learning_materials: []
   }
   saveData()
 }
