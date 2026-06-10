@@ -1,6 +1,7 @@
+import { useState, useEffect } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from './lib/queryClient'
-import { useAppStore } from './stores/app.store'
+import { useAppStore, ActiveTab } from './stores/app.store'
 import Layout from './components/layout/Layout'
 import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
@@ -30,6 +31,16 @@ import Intelligence from './pages/Intelligence'
 function AppContent() {
   const activeTab = useAppStore((state) => state.activeTab)
   const { data: profile, isLoading, refetch } = useUserProfileQuery()
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(new Set([activeTab]))
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev
+      const next = new Set(prev)
+      next.add(activeTab)
+      return next
+    })
+  }, [activeTab])
 
   if (isLoading) {
     return (
@@ -44,8 +55,32 @@ function AppContent() {
     return <Onboarding onComplete={() => refetch()} />
   }
 
-  const renderPage = () => {
-    switch (activeTab) {
+  const allTabs: ActiveTab[] = [
+    'dashboard',
+    'tasks',
+    'projects',
+    'learning',
+    'flashcards',
+    'flashcard-review',
+    'feynman',
+    'knowledgeMap',
+    'focus',
+    'secondBrain',
+    'journal',
+    'bodyDouble',
+    'sleep',
+    'commitments',
+    'intelligence',
+    'habits',
+    'dopamine',
+    'achievements',
+    'coach',
+    'analytics',
+    'settings'
+  ]
+
+  const renderTabContent = (tabId: ActiveTab) => {
+    switch (tabId) {
       case 'dashboard':
         return <Dashboard />
       case 'tasks':
@@ -89,13 +124,30 @@ function AppContent() {
       case 'settings':
         return <Settings />
       default:
-        return <Dashboard />
+        return null
     }
   }
 
   return (
     <>
-      <Layout>{renderPage()}</Layout>
+      <Layout>
+        {allTabs.map((tabId) => {
+          const isSelected = activeTab === tabId
+          const hasVisited = visitedTabs.has(tabId)
+
+          if (!hasVisited) return null
+
+          return (
+            <div
+              key={tabId}
+              style={{ display: isSelected ? 'block' : 'none' }}
+              className="h-full w-full"
+            >
+              {renderTabContent(tabId)}
+            </div>
+          )
+        })}
+      </Layout>
       <LevelUpOverlay />
     </>
   )
