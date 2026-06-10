@@ -160,6 +160,64 @@ export const api = {
       ipcRenderer.invoke('contextSnapshots:getLatestSnapshot', taskId, projectId, trackId),
     saveSnapshot: (snapshot: any) => ipcRenderer.invoke('contextSnapshots:saveSnapshot', snapshot),
   },
+  // Notes / Second Brain
+  notes: {
+    getNotes: (area?: string) => ipcRenderer.invoke('notes:getNotes', area),
+    getNoteById: (id: number) => ipcRenderer.invoke('notes:getNoteById', id),
+    createNote: (note: any) => ipcRenderer.invoke('notes:createNote', note),
+    updateNote: (id: number, note: any) => ipcRenderer.invoke('notes:updateNote', id, note),
+    deleteNote: (id: number) => ipcRenderer.invoke('notes:deleteNote', id),
+    getBacklinks: (id: number) => ipcRenderer.invoke('notes:getBacklinks', id),
+    suggestLinks: (id: number, content: string) => ipcRenderer.invoke('notes:suggestLinks', id, content),
+  },
+  // ADHD Journal
+  journal: {
+    getEntries: () => ipcRenderer.invoke('journal:getEntries'),
+    getEntryById: (id: number) => ipcRenderer.invoke('journal:getEntryById', id),
+    createEntry: (entry: any) => ipcRenderer.invoke('journal:createEntry', entry),
+    updateEntry: (id: number, entry: any) => ipcRenderer.invoke('journal:updateEntry', id, entry),
+    deleteEntry: (id: number) => ipcRenderer.invoke('journal:deleteEntry', id),
+    analyzeEntry: (content: string, type: string) => ipcRenderer.invoke('journal:analyzeEntry', content, type),
+  },
+  // AI Body Double
+  bodyDouble: {
+    getSessions: () => ipcRenderer.invoke('bodyDouble:getSessions'),
+    startSession: (config: any) => ipcRenderer.invoke('bodyDouble:startSession', config),
+    stopSession: (actualMinutes: number, completed: boolean) => ipcRenderer.invoke('bodyDouble:stopSession', actualMinutes, completed),
+    onMessage: (callback: (message: any) => void) => {
+      const listener = (_: any, message: any) => callback(message)
+      ipcRenderer.on('body-double:message', listener)
+      return () => {
+        ipcRenderer.removeListener('body-double:message', listener)
+      }
+    },
+    onSpeak: (callback: (text: string) => void) => {
+      const listener = (_: any, text: string) => callback(text)
+      ipcRenderer.on('body-double:speak', listener)
+      return () => {
+        ipcRenderer.removeListener('body-double:speak', listener)
+      }
+    },
+  },
+  // Sleep Logs
+  sleep: {
+    getSleepLogs: (limit?: number) => ipcRenderer.invoke('sleep:getSleepLogs', limit),
+    logSleep: (log: any) => ipcRenderer.invoke('sleep:logSleep', log),
+    deleteSleepLog: (id: number) => ipcRenderer.invoke('sleep:deleteSleepLog', id),
+  },
+  // Intelligence Layer
+  intelligence: {
+    getPatternInsights: () => ipcRenderer.invoke('intelligence:getPatternInsights'),
+    refreshInsights: () => ipcRenderer.invoke('intelligence:refreshInsights'),
+    getWeeklyAutopsy: () => ipcRenderer.invoke('intelligence:getWeeklyAutopsy'),
+  },
+  // Commitments
+  commitments: {
+    getCommitments: () => ipcRenderer.invoke('commitments:getCommitments'),
+    createCommitment: (commitment: any) => ipcRenderer.invoke('commitments:createCommitment', commitment),
+    updateCommitment: (id: number, updates: any) => ipcRenderer.invoke('commitments:updateCommitment', id, updates),
+    deleteCommitment: (id: number) => ipcRenderer.invoke('commitments:deleteCommitment', id),
+  },
   // System / Hotkeys
   system: {
     onBrainDumpHotkey: (callback: () => void) => {

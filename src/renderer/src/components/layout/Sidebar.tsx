@@ -14,7 +14,12 @@ import {
   Brain,
   Layers,
   GraduationCap,
-  Network
+  Network,
+  BookOpenText,
+  User,
+  Moon,
+  FileSignature,
+  Dna
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { motion } from 'framer-motion'
@@ -37,6 +42,12 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'feynman', label: 'تقنية فاينمان 🎓', icon: GraduationCap },
   { id: 'knowledgeMap', label: 'خريطة المعرفة 🗺️', icon: Network },
   { id: 'focus', label: 'جلسة تركيز', icon: Timer },
+  { id: 'secondBrain', label: 'الدماغ الثاني 🧠', icon: Brain },
+  { id: 'journal', label: 'اليوميات والعواطف 📔', icon: BookOpenText },
+  { id: 'bodyDouble', label: 'المرافق الافتراضي 👤', icon: User },
+  { id: 'sleep', label: 'سجل النوم 💤', icon: Moon },
+  { id: 'commitments', label: 'عقود الالتزام 📝', icon: FileSignature },
+  { id: 'intelligence', label: 'ذكاء الأنماط 🧬', icon: Dna },
   { id: 'habits', label: 'بناء العادات', icon: CalendarRange },
   { id: 'dopamine', label: 'قائمة الدوبامين', icon: Sparkles },
   { id: 'achievements', label: 'الأوسمة والـ XP', icon: Award },

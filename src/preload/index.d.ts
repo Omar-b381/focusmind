@@ -25,7 +25,14 @@ import {
   FSRSReview,
   FeynmanSession,
   KnowledgeNode,
-  LearningAnalytics
+  LearningAnalytics,
+  Note,
+  NoteLink,
+  JournalEntry,
+  BodyDoubleSession,
+  SleepLog,
+  PatternInsight,
+  Commitment
 } from './types'
 
 export type {
@@ -53,7 +60,14 @@ export type {
   FSRSReview,
   FeynmanSession,
   KnowledgeNode,
-  LearningAnalytics
+  LearningAnalytics,
+  Note,
+  NoteLink,
+  JournalEntry,
+  BodyDoubleSession,
+  SleepLog,
+  PatternInsight,
+  Commitment
 }
 
 declare global {
@@ -193,6 +207,46 @@ declare global {
         getLatestSnapshot: (taskId?: number, projectId?: number, trackId?: number) => Promise<ContextSnapshot | undefined>
         saveSnapshot: (snapshot: Partial<ContextSnapshot>) => Promise<ContextSnapshot>
       }
+      notes: {
+        getNotes: (area?: string) => Promise<Note[]>
+        getNoteById: (id: number) => Promise<Note | undefined>
+        createNote: (note: Partial<Note>) => Promise<Note>
+        updateNote: (id: number, note: Partial<Note>) => Promise<Note>
+        deleteNote: (id: number) => Promise<boolean>
+        getBacklinks: (id: number) => Promise<Note[]>
+        suggestLinks: (id: number, content: string) => Promise<{ noteId: number; title: string; reason: string }[]>
+      }
+      journal: {
+        getEntries: () => Promise<JournalEntry[]>
+        getEntryById: (id: number) => Promise<JournalEntry | undefined>
+        createEntry: (entry: Partial<JournalEntry>) => Promise<JournalEntry>
+        updateEntry: (id: number, entry: Partial<JournalEntry>) => Promise<JournalEntry>
+        deleteEntry: (id: number) => Promise<boolean>
+        analyzeEntry: (content: string, type: string) => Promise<{ primaryEmotion: string; secondaryEmotion: string; intensity: number; shameLevel: number; insights: string; actionSuggested: string }>
+      }
+      bodyDouble: {
+        getSessions: () => Promise<BodyDoubleSession[]>
+        startSession: (config: { focusSessionId?: number; personaName: string; ambientType: 'silent' | 'subtle' | 'active'; soundscape?: string; checkInIntervalMin: number; voiceEnabled: boolean; plannedMinutes: number }) => Promise<BodyDoubleSession>
+        stopSession: (actualMinutes: number, completed: boolean) => Promise<void>
+        onMessage: (callback: (message: { text: string; type: string; timestamp: string }) => void) => () => void
+        onSpeak: (callback: (text: string) => void) => () => void
+      }
+      sleep: {
+        getSleepLogs: (limit?: number) => Promise<SleepLog[]>
+        logSleep: (log: Partial<SleepLog>) => Promise<SleepLog>
+        deleteSleepLog: (id: number) => Promise<boolean>
+      }
+      intelligence: {
+        getPatternInsights: () => Promise<PatternInsight[]>
+        refreshInsights: () => Promise<PatternInsight[]>
+        getWeeklyAutopsy: () => Promise<{ rawData: any; aiNarrative: string; keyPatterns: PatternInsight[]; nextWeekRecommendations: any }>
+      }
+      commitments: {
+        getCommitments: () => Promise<Commitment[]>
+        createCommitment: (commitment: Partial<Commitment>) => Promise<Commitment>
+        updateCommitment: (id: number, updates: Partial<Commitment>) => Promise<Commitment>
+        deleteCommitment: (id: number) => Promise<boolean>
+      }
       system: {
         onBrainDumpHotkey: (callback: () => void) => () => void
         onFocusHotkey: (callback: () => void) => () => void
@@ -203,3 +257,4 @@ declare global {
     }
   }
 }
+

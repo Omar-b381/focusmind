@@ -21,4 +21,12 @@ export * from './energyLogs.schema';
 export * from './xpLedger.schema';
 export * from './contextSnapshots.schema';
 export * from './materials.schema';
+export * from './notes.schema';
+export * from './noteLinks.schema';
+export * from './journalEntries.schema';
+export * from './bodyDoubleSession.schema';
+export * from './sleepLogs.schema';
+export * from './patternInsights.schema';
+export * from './commitments.schema';
+
 

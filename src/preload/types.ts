@@ -462,3 +462,136 @@ export interface LearningMaterial {
   updatedAt: Date | null
 }
 
+export interface Note {
+  id: number
+  title: string
+  content: string
+  tags: string // JSON representation string[]
+  emoji: string
+  color: string | null
+  linkedTaskId: number | null
+  linkedProjectId: number | null
+  linkedPathId: number | null
+  linkedModuleId: number | null
+  area: string // 'projects' | 'areas' | 'resources' | 'archive' | 'uncategorized'
+  aiSummary: string | null
+  aiKeywords: string // JSON representation string[]
+  embeddingHash: string | null
+  searchContent: string | null
+  wordCount: number
+  isArchived: boolean
+  isPinned: boolean
+  createdAt: Date | string
+  updatedAt: Date | string | null
+}
+
+export interface NoteLink {
+  id: number
+  sourceNoteId: number
+  targetNoteId: number
+  linkType: string
+  context: string | null
+  createdAt: Date | string
+}
+
+export interface JournalEntry {
+  id: number
+  date: string // YYYY-MM-DD
+  type: 'morning' | 'evening' | 'shame_breaker' | 'decision' | 'free'
+  content: string
+  prompt: string | null
+  primaryEmotion: string | null
+  secondaryEmotion: string | null
+  emotionIntensity: number | null
+  emotionColor: string | null
+  energyAtWrite: number | null
+  moodAtWrite: number | null
+  sleepLastNight: number | null
+  aiInsights: string | null
+  aiDetectedPatterns: string | null // JSON string
+  aiShameLevel: number | null
+  aiActionSuggested: string | null
+  relatedNoteId: number | null
+  xpEarned: number
+  wordCount: number
+  durationMinutes: number | null
+  createdAt: Date | string
+}
+
+export interface BodyDoubleSession {
+  id: number
+  focusSessionId: number | null
+  personaName: string
+  ambientType: 'silent' | 'subtle' | 'active'
+  soundscape: string | null
+  checkInIntervalMin: number
+  voiceEnabled: boolean
+  plannedMinutes: number
+  actualMinutes: number | null
+  checkInsCount: number
+  driftDetectedCount: number
+  affirmationsGiven: string // JSON list
+  taskCompleted: boolean
+  userRating: number | null
+  startedAt: Date | string
+  endedAt: Date | string | null
+  date: string // YYYY-MM-DD
+}
+
+export interface SleepLog {
+  id: number
+  date: string // YYYY-MM-DD
+  bedTime: string | null // HH:MM
+  wakeTime: string | null // HH:MM
+  totalHours: number | null
+  quality: number | null
+  fellAsleepMin: number | null
+  racingThoughts: boolean
+  midnightWakeups: number
+  medicationTaken: boolean
+  notes: string | null
+  aiInsight: string | null
+  createdAt: Date | string
+}
+
+export interface PatternInsight {
+  id?: number
+  type: string
+  title: string
+  description: string
+  confidence: number
+  dataPointCount: number | null
+  recommendation: string | null
+  correlationValue: number | null
+  chartData: string | null
+  isNew: boolean
+  isActedOn: boolean
+  validFrom: string | null
+  generatedAt: Date | string
+}
+
+export interface Commitment {
+  id: number
+  title: string
+  description: string | null
+  type: string // 'learning' | 'habit' | 'project' | 'daily_routine' | 'custom'
+  commitment: string
+  whyItMatters: string | null
+  obstaclesPlan: string | null
+  rewardPlan: string | null
+  linkedPathId: number | null
+  linkedHabitId: number | null
+  linkedProjectId: number | null
+  startDate: string // YYYY-MM-DD
+  endDate: string | null // YYYY-MM-DD
+  durationDays: number | null
+  status: string // 'active' | 'completed' | 'broken' | 'renewed'
+  streak: number
+  completionRate: number // 0-100
+  aiCheckinEnabled: boolean
+  lastCheckin: Date | string | null
+  createdAt: Date | string
+  completedAt: Date | string | null
+}
+
+

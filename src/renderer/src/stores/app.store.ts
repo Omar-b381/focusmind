@@ -16,6 +16,13 @@ export type ActiveTab =
   | 'flashcard-review'
   | 'feynman'
   | 'knowledgeMap'
+  | 'secondBrain'
+  | 'journal'
+  | 'bodyDouble'
+  | 'sleep'
+  | 'commitments'
+  | 'intelligence'
+
 
 interface AppState {
   activeTab: ActiveTab

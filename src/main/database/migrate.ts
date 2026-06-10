@@ -9,14 +9,15 @@ export function runMigrations(): void {
   }
   const db = getDatabase();
 
-  // For development v3 migration: drop tables if they exist to force clean schema alignment
+  // For development v4 migration: drop tables if they exist to force clean schema alignment
   const dropTables = [
     'user_profile', 'settings', 'tasks', 'projects', 
     'learning_tracks', 'learning_lessons', 'learning_paths', 'learning_modules',
     'flashcard_decks', 'flashcards', 'fsrs_reviews', 'feynman_sessions', 'knowledge_nodes', 'learning_analytics',
     'focus_sessions', 'habits', 'habit_logs', 'brain_dumps', 'dopamine_activities',
     'dopamine_logs', 'mood_logs', 'energy_logs', 'xp_ledger', 'achievements',
-    'ai_conversations', 'context_snapshots', 'learning_materials'
+    'ai_conversations', 'context_snapshots', 'learning_materials',
+    'notes', 'note_links', 'journal_entries', 'body_double_sessions', 'sleep_logs', 'pattern_insights', 'commitments'
   ];
   for (const table of dropTables) {
     try {
@@ -468,6 +469,145 @@ export function runMigrations(): void {
     updated_at INTEGER
   )`);
 
+  // 20. notes
+  db.run(sql`CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    emoji TEXT DEFAULT '📝',
+    color TEXT,
+    task_id INTEGER,
+    project_id INTEGER,
+    path_id INTEGER,
+    module_id INTEGER,
+    area TEXT DEFAULT 'uncategorized',
+    ai_summary TEXT,
+    ai_keywords TEXT DEFAULT '[]',
+    embedding_hash TEXT,
+    search_content TEXT,
+    word_count INTEGER DEFAULT 0,
+    archived INTEGER DEFAULT 0,
+    pinned INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER
+  )`);
+
+  // 21. note_links
+  db.run(sql`CREATE TABLE IF NOT EXISTS note_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER NOT NULL,
+    target_id INTEGER NOT NULL,
+    link_type TEXT DEFAULT 'reference',
+    context TEXT,
+    created_at INTEGER NOT NULL
+  )`);
+
+  // 22. journal_entries
+  db.run(sql`CREATE TABLE IF NOT EXISTS journal_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'free',
+    content TEXT NOT NULL,
+    prompt TEXT,
+    primary_emotion TEXT,
+    secondary_emotion TEXT,
+    intensity INTEGER,
+    emotion_color TEXT,
+    energy INTEGER,
+    mood INTEGER,
+    sleep_hours REAL,
+    ai_insights TEXT,
+    patterns TEXT,
+    shame_level INTEGER,
+    ai_action TEXT,
+    note_id INTEGER,
+    xp INTEGER DEFAULT 5,
+    word_count INTEGER DEFAULT 0,
+    duration_min INTEGER,
+    created_at INTEGER NOT NULL
+  )`);
+
+  // 23. body_double_sessions
+  db.run(sql`CREATE TABLE IF NOT EXISTS body_double_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    focus_session_id INTEGER,
+    persona TEXT NOT NULL DEFAULT 'مرافق',
+    ambient TEXT NOT NULL DEFAULT 'subtle',
+    soundscape TEXT DEFAULT 'none',
+    check_in_interval INTEGER DEFAULT 10,
+    voice INTEGER DEFAULT 0,
+    planned_min INTEGER NOT NULL,
+    actual_min INTEGER,
+    check_ins INTEGER DEFAULT 0,
+    drifts INTEGER DEFAULT 0,
+    affirmations TEXT DEFAULT '[]',
+    completed INTEGER DEFAULT 0,
+    rating INTEGER,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    date TEXT NOT NULL
+  )`);
+
+  // 24. sleep_logs
+  db.run(sql`CREATE TABLE IF NOT EXISTS sleep_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    bed_time TEXT,
+    wake_time TEXT,
+    total_hours REAL,
+    quality INTEGER,
+    fell_asleep INTEGER,
+    racing_thoughts INTEGER DEFAULT 0,
+    wakeups INTEGER DEFAULT 0,
+    med_taken INTEGER DEFAULT 0,
+    notes TEXT,
+    ai_insight TEXT,
+    created_at INTEGER NOT NULL
+  )`);
+
+  // 25. pattern_insights
+  db.run(sql`CREATE TABLE IF NOT EXISTS pattern_insights (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    data_points INTEGER,
+    recommendation TEXT,
+    correlation REAL,
+    chart_data TEXT,
+    is_new INTEGER DEFAULT 1,
+    acted_on INTEGER DEFAULT 0,
+    valid_from TEXT,
+    generated_at INTEGER NOT NULL,
+    expires_at INTEGER
+  )`);
+
+  // 26. commitments
+  db.run(sql`CREATE TABLE IF NOT EXISTS commitments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    type TEXT NOT NULL,
+    commitment TEXT NOT NULL,
+    why_matters TEXT,
+    obstacles_plan TEXT,
+    reward_plan TEXT,
+    path_id INTEGER,
+    habit_id INTEGER,
+    project_id INTEGER,
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    duration_days INTEGER,
+    status TEXT DEFAULT 'active',
+    streak INTEGER DEFAULT 0,
+    completion_rate REAL DEFAULT 0,
+    ai_checkin INTEGER DEFAULT 1,
+    last_checkin INTEGER,
+    created_at INTEGER NOT NULL,
+    completed_at INTEGER
+  )`);
 
   // Seed default data
   seedUserProfile();

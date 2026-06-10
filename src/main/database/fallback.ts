@@ -30,6 +30,13 @@ interface FallbackData {
   feynman_sessions: any[]
   knowledge_nodes: any[]
   learning_analytics: any[]
+  notes: any[]
+  note_links: any[]
+  journal_entries: any[]
+  body_double_sessions: any[]
+  sleep_logs: any[]
+  pattern_insights: any[]
+  commitments: any[]
 }
 
 let dataFilePath: string
@@ -79,6 +86,16 @@ export function initFallbackDatabase(): void {
           dataCache.learning_analytics = []
           changed = true
         }
+        if (!dataCache.notes) {
+          dataCache.notes = []
+          dataCache.note_links = []
+          dataCache.journal_entries = []
+          dataCache.body_double_sessions = []
+          dataCache.sleep_logs = []
+          dataCache.pattern_insights = []
+          dataCache.commitments = []
+          changed = true
+        }
         if (changed) saveData()
       }
       return
@@ -115,7 +132,14 @@ export function initFallbackDatabase(): void {
     fsrs_reviews: [],
     feynman_sessions: [],
     knowledge_nodes: [],
-    learning_analytics: []
+    learning_analytics: [],
+    notes: [],
+    note_links: [],
+    journal_entries: [],
+    body_double_sessions: [],
+    sleep_logs: [],
+    pattern_insights: [],
+    commitments: []
   }
   saveData()
 }

@@ -2,7 +2,7 @@ import { ipcMain, Notification, dialog, BrowserWindow, app } from 'electron'
 import https from 'https'
 import { getDatabase, isFallbackDatabase } from '../database'
 import { getFallbackCollection, insertFallback, updateFallback, deleteFallback, initFallbackDatabase, deleteFallbackModulesForPath } from '../database/fallback'
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and, or, sql } from 'drizzle-orm'
 import * as schema from '../database/schema'
 import { getAIProvider } from '../ai/manager'
 import { COACH_SYSTEM_PROMPT } from '../ai/prompts/coach'
@@ -13,8 +13,18 @@ import { buildPathGeneratorPrompt } from '../ai/prompts/path-generator'
 import { buildFlashcardGeneratorPrompt } from '../ai/prompts/flashcard-generator'
 import { buildFeynmanEvaluatorPrompt } from '../ai/prompts/feynman-evaluator'
 import { FSRSService, FSRSResult } from '../services/fsrs.service'
+import { SecondBrainService } from '../services/secondBrain.service'
+import { BodyDoubleService } from '../services/bodyDouble.service'
+import { IntelligenceService } from '../services/intelligence.service'
+import { buildJournalCoachPrompt } from '../ai/prompts/journal-coach'
+import { buildWeeklyAutopsyPrompt } from '../ai/prompts/weekly-autopsy'
+import { buildBodyDoublePrompt } from '../ai/prompts/body-double'
 
 export function registerIPCHandlers(): void {
+  const secondBrainService = new SecondBrainService()
+  const bodyDoubleService = new BodyDoubleService()
+  const intelligenceService = new IntelligenceService()
+
   function getAppSettings() {
     const list = isFallbackDatabase() 
       ? getFallbackCollection('settings')
@@ -24,6 +34,16 @@ export function registerIPCHandlers(): void {
       settingsObj[s.key] = s.value
     })
     return settingsObj
+  }
+
+  function getAIProviderInstance() {
+    const settings = getAppSettings()
+    return getAIProvider({
+      aiProvider: settings.aiProvider || 'gemini',
+      aiModel: settings.aiModel || 'gemini-1.5-flash',
+      aiApiKey: settings.aiApiKey || '',
+      aiCustomEndpoint: settings.aiCustomEndpoint
+    })
   }
 
   // ==========================================
@@ -2601,6 +2621,690 @@ ${contentToAnalyze}
       return false
     }
   })
+
+  // ==========================================
+  // Second Brain / Notes IPC Handlers
+  // ==========================================
+  ipcMain.handle('notes:getNotes', async (_, area) => {
+    if (isFallbackDatabase()) {
+      let list = getFallbackCollection('notes');
+      if (area && area !== 'all') {
+        list = list.filter((n: any) => n.area === area);
+      }
+      return list;
+    } else {
+      const db = getDatabase();
+      const query = db.select().from(schema.notes);
+      if (area && area !== 'all') {
+        return query.where(eq(schema.notes.area, area)).all();
+      }
+      return query.all();
+    }
+  });
+
+  ipcMain.handle('notes:getNoteById', async (_, id) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('notes').find((n: any) => n.id === id);
+    } else {
+      const db = getDatabase();
+      return db.select().from(schema.notes).where(eq(schema.notes.id, id)).get();
+    }
+  });
+
+  ipcMain.handle('notes:createNote', async (_, note) => {
+    let aiSummary = note.aiSummary || null;
+    let aiKeywords = note.aiKeywords || '[]';
+    
+    if (note.content && !aiSummary) {
+      try {
+        const provider = getAIProviderInstance();
+        if (provider) {
+          const prompt = `أنت مساعد ذكي لـ ADHD. لخص هذه الملاحظة في جملة واحدة باللغة العربية واقترح 3 كلمات مفتاحية كـ JSON array.
+المحتوى:
+"${note.content}"
+
+أرجع الإجابة بصيغة JSON فقط:
+{
+  "summary": "ملخص الملاحظة...",
+  "keywords": ["كلمة1", "كلمة2", "كلمة3"]
+}`;
+          const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+          const cleanJson = res.replace(/```json/g, '').replace(/```/g, '').trim();
+          const parsed = JSON.parse(cleanJson);
+          aiSummary = parsed.summary;
+          aiKeywords = JSON.stringify(parsed.keywords || []);
+        }
+      } catch (err) {
+        console.error('Error generating AI metadata for note:', err);
+      }
+    }
+
+    const wordCount = note.content ? note.content.trim().split(/\s+/).length : 0;
+    const searchContent = note.content ? note.content.replace(/[#*`_[\]]/g, '') : '';
+
+    if (isFallbackDatabase()) {
+      const created = insertFallback('notes', {
+        ...note,
+        aiSummary,
+        aiKeywords,
+        wordCount,
+        searchContent,
+        isArchived: note.isArchived ? 1 : 0,
+        isPinned: note.isPinned ? 1 : 0,
+        createdAt: new Date().toISOString()
+      });
+      await secondBrainService.syncLinks(created.id, note.content || '');
+      return created;
+    } else {
+      const db = getDatabase();
+      const result = db.insert(schema.notes).values({
+        ...note,
+        aiSummary,
+        aiKeywords,
+        wordCount,
+        searchContent,
+        isArchived: note.isArchived ? true : false,
+        isPinned: note.isPinned ? true : false,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      } as any).run();
+      const newId = Number(result.lastInsertRowid);
+      await secondBrainService.syncLinks(newId, note.content || '');
+      return db.select().from(schema.notes).where(eq(schema.notes.id, newId)).get();
+    }
+  });
+
+  ipcMain.handle('notes:updateNote', async (_, id, updates) => {
+    const wordCount = updates.content ? updates.content.trim().split(/\s+/).length : undefined;
+    const searchContent = updates.content ? updates.content.replace(/[#*`_[\]]/g, '') : undefined;
+    
+    let aiSummary = updates.aiSummary;
+    let aiKeywords = updates.aiKeywords;
+    if (updates.content && !aiSummary) {
+      try {
+        const provider = getAIProviderInstance();
+        if (provider) {
+          const prompt = `أنت مساعد ذكي لـ ADHD. لخص هذه الملاحظة في جملة واحدة باللغة العربية واقترح 3 كلمات مفتاحية كـ JSON array.
+المحتوى:
+"${updates.content}"
+
+أرجع الإجابة بصيغة JSON فقط:
+{
+  "summary": "ملخص الملاحظة...",
+  "keywords": ["كلمة1", "كلمة2", "كلمة3"]
+}`;
+          const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+          const cleanJson = res.replace(/```json/g, '').replace(/```/g, '').trim();
+          const parsed = JSON.parse(cleanJson);
+          aiSummary = parsed.summary;
+          aiKeywords = JSON.stringify(parsed.keywords || []);
+        }
+      } catch (err) {
+        console.error('Error updating AI metadata for note:', err);
+      }
+    }
+
+    const payload = {
+      ...updates,
+      ...(wordCount !== undefined ? { wordCount } : {}),
+      ...(searchContent !== undefined ? { searchContent } : {}),
+      ...(aiSummary !== undefined ? { aiSummary } : {}),
+      ...(aiKeywords !== undefined ? { aiKeywords } : {})
+    };
+
+    if (isFallbackDatabase()) {
+      const updated = updateFallback('notes', id, payload);
+      if (updates.content !== undefined) {
+        await secondBrainService.syncLinks(id, updates.content);
+      }
+      return updated;
+    } else {
+      const db = getDatabase();
+      db.update(schema.notes).set({
+        ...payload,
+        updatedAt: new Date()
+      } as any).where(eq(schema.notes.id, id)).run();
+      if (updates.content !== undefined) {
+        await secondBrainService.syncLinks(id, updates.content);
+      }
+      return db.select().from(schema.notes).where(eq(schema.notes.id, id)).get();
+    }
+  });
+
+  ipcMain.handle('notes:deleteNote', async (_, id) => {
+    if (isFallbackDatabase()) {
+      const links = getFallbackCollection('note_links');
+      const filtered = links.filter((l: any) => l.sourceNoteId !== id && l.targetNoteId !== id);
+      const linksRef = getFallbackCollection('note_links');
+      linksRef.length = 0;
+      filtered.forEach((l: any) => linksRef.push(l));
+      return deleteFallback('notes', id);
+    } else {
+      const db = getDatabase();
+      db.delete(schema.noteLinks).where(or(eq(schema.noteLinks.sourceNoteId, id), eq(schema.noteLinks.targetNoteId, id))).run();
+      db.delete(schema.notes).where(eq(schema.notes.id, id)).run();
+      return true;
+    }
+  });
+
+  ipcMain.handle('notes:getBacklinks', async (_, id) => {
+    return secondBrainService.getBacklinks(id);
+  });
+
+  ipcMain.handle('notes:suggestLinks', async (_, id, content) => {
+    try {
+      const allNotes = isFallbackDatabase()
+        ? getFallbackCollection('notes')
+        : getDatabase().select().from(schema.notes).all();
+      
+      const otherNotes = allNotes.filter((n: any) => n.id !== id);
+      if (otherNotes.length === 0) return [];
+      
+      const provider = getAIProviderInstance();
+      if (!provider) return [];
+
+      const notesList = otherNotes.map((n: any) => `- [ID: ${n.id}] ${n.title}`).join('\n');
+      const prompt = `أنت خبير في بناء خرائط المعرفة وتنظيم الدماغ الثاني.
+لدينا الملاحظة الحالية ومحتواها:
+"${content}"
+
+وهنا قائمة بكافة الملاحظات الأخرى المتاحة في الدماغ الثاني للمستخدم:
+${notesList}
+
+حلل المحتوى واقترح 1 إلى 3 ملاحظات من القائمة يمكن ربط الملاحظة الحالية بها (سواءً كمرجع أو سياق إضافي).
+أرجع الإجابة بصيغة JSON array صالحة فقط بهذا التنسيق (لا تضف أي نص آخر أو تنسيق مارك داون خارج الـ JSON):
+[
+  { "noteId": 1, "title": "عنوان الملاحظة المقترحة", "reason": "سبب الربط بالعربية" }
+]`;
+      const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+      const cleanJson = res.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJson);
+    } catch (err) {
+      console.error('Error suggesting links:', err);
+      return [];
+    }
+  });
+
+  // ==========================================
+  // ADHD Journal IPC Handlers
+  // ==========================================
+  ipcMain.handle('journal:getEntries', async (_) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('journal_entries');
+    } else {
+      const db = getDatabase();
+      return db.select().from(schema.journalEntries).all();
+    }
+  });
+
+  ipcMain.handle('journal:getEntryById', async (_, id) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('journal_entries').find((j: any) => j.id === id);
+    } else {
+      const db = getDatabase();
+      return db.select().from(schema.journalEntries).where(eq(schema.journalEntries.id, id)).get();
+    }
+  });
+
+  ipcMain.handle('journal:createEntry', async (_, entry) => {
+    if (isFallbackDatabase()) {
+      return insertFallback('journal_entries', {
+        ...entry,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      const db = getDatabase();
+      const res = db.insert(schema.journalEntries).values({
+        ...entry,
+        createdAt: new Date()
+      } as any).run();
+      return db.select().from(schema.journalEntries).where(eq(schema.journalEntries.id, Number(res.lastInsertRowid))).get();
+    }
+  });
+
+  ipcMain.handle('journal:updateEntry', async (_, id, updates) => {
+    if (isFallbackDatabase()) {
+      return updateFallback('journal_entries', id, updates);
+    } else {
+      const db = getDatabase();
+      db.update(schema.journalEntries).set(updates as any).where(eq(schema.journalEntries.id, id)).run();
+      return db.select().from(schema.journalEntries).where(eq(schema.journalEntries.id, id)).get();
+    }
+  });
+
+  ipcMain.handle('journal:deleteEntry', async (_, id) => {
+    if (isFallbackDatabase()) {
+      return deleteFallback('journal_entries', id);
+    } else {
+      const db = getDatabase();
+      db.delete(schema.journalEntries).where(eq(schema.journalEntries.id, id)).run();
+      return true;
+    }
+  });
+
+  ipcMain.handle('journal:analyzeEntry', async (_, content, type) => {
+    try {
+      const provider = getAIProviderInstance();
+      if (!provider) {
+        return {
+          primaryEmotion: 'Anticipation',
+          secondaryEmotion: 'ترقب',
+          intensity: 3,
+          shameLevel: 1,
+          insights: 'لم يتمكن المحلل من الاتصال بالذكاء الاصطناعي حالياً، ولكن الاستمرار في الكتابة بحد ذاته فوز رائع!',
+          actionSuggested: 'خذ نفساً عميقاً وواصل التفكير الهادئ.'
+        };
+      }
+      const prompt = buildJournalCoachPrompt(content, type);
+      const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+      const cleanJson = res.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJson);
+    } catch (err) {
+      console.error('Error analyzing journal entry:', err);
+      return {
+        primaryEmotion: 'Anticipation',
+        secondaryEmotion: 'ترقب',
+        intensity: 3,
+        shameLevel: 1,
+        insights: 'حدث خطأ أثناء الاتصال بالمحلل العاطفي الذكي.',
+        actionSuggested: 'اكتب مهمة بسيطة مكونة من كلمة واحدة فقط للبدء.'
+      };
+    }
+  });
+
+  // ==========================================
+  // AI Body Double IPC Handlers
+  // ==========================================
+  ipcMain.handle('bodyDouble:getSessions', async (_) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('body_double_sessions');
+    } else {
+      const db = getDatabase();
+      return db.select().from(schema.bodyDoubleSessions).all();
+    }
+  });
+
+  ipcMain.handle('bodyDouble:startSession', async (_, config) => {
+    let session: any;
+    const dateStr = new Date().toISOString().split('T')[0];
+    
+    if (isFallbackDatabase()) {
+      session = insertFallback('body_double_sessions', {
+        focusSessionId: config.focusSessionId || null,
+        personaName: config.personaName || 'مرافق',
+        ambientType: config.ambientType || 'subtle',
+        soundscape: config.soundscape || 'none',
+        checkInIntervalMin: config.checkInIntervalMin || 10,
+        voiceEnabled: config.voiceEnabled ? 1 : 0,
+        plannedMinutes: config.plannedMinutes,
+        actualMinutes: null,
+        checkInsCount: 0,
+        driftDetectedCount: 0,
+        affirmationsGiven: '[]',
+        taskCompleted: 0,
+        userRating: null,
+        startedAt: new Date().toISOString(),
+        endedAt: null,
+        date: dateStr
+      });
+    } else {
+      const db = getDatabase();
+      const res = db.insert(schema.bodyDoubleSessions).values({
+        focusSessionId: config.focusSessionId || null,
+        personaName: config.personaName || 'مرافق',
+        ambientType: config.ambientType || 'subtle',
+        soundscape: config.soundscape || 'none',
+        checkInIntervalMin: config.checkInIntervalMin || 10,
+        voiceEnabled: config.voiceEnabled ? true : false,
+        plannedMinutes: config.plannedMinutes,
+        checkInsCount: 0,
+        driftDetectedCount: 0,
+        affirmationsGiven: '[]',
+        taskCompleted: false,
+        startedAt: new Date(),
+        date: dateStr
+      } as any).run();
+      session = db.select().from(schema.bodyDoubleSessions).where(eq(schema.bodyDoubleSessions.id, Number(res.lastInsertRowid))).get();
+    }
+
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    
+    bodyDoubleService.startSession(
+      session.id,
+      config,
+      async () => {
+        try {
+          const provider = getAIProviderInstance();
+          let text = 'يبدو أنك ابتعدت قليلاً عن التركيز، أنا معك هنا دائماً. هل يمكننا إكمال ما بدأناه؟ ✨';
+          if (provider) {
+            const prompt = buildBodyDoublePrompt('drift', session);
+            const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+            text = res.trim();
+          }
+          if (win) {
+            win.webContents.send('body-double:message', {
+              text,
+              type: 'drift',
+              timestamp: new Date().toISOString()
+            });
+            win.webContents.send('body-double:speak', text);
+          }
+        } catch (e) {
+          console.error('Error in body double drift prompt:', e);
+        }
+      },
+      async () => {
+        try {
+          const provider = getAIProviderInstance();
+          let text = 'لا زلت هنا معك. خطوة بخطوة سننجز المهمة! 💙';
+          if (provider) {
+            let currentCount = 0;
+            if (isFallbackDatabase()) {
+              const sess = getFallbackCollection('body_double_sessions').find((s: any) => s.id === session.id);
+              if (sess) {
+                currentCount = (sess.checkInsCount || 0) + 1;
+                updateFallback('body_double_sessions', session.id, { checkInsCount: currentCount });
+              }
+            } else {
+              const db = getDatabase();
+              const sess = db.select().from(schema.bodyDoubleSessions).where(eq(schema.bodyDoubleSessions.id, session.id)).get();
+              if (sess) {
+                currentCount = (sess.checkInsCount || 0) + 1;
+                db.update(schema.bodyDoubleSessions).set({ checkInsCount: currentCount }).where(eq(schema.bodyDoubleSessions.id, session.id)).run();
+              }
+            }
+            const prompt = buildBodyDoublePrompt('check_in', { ...session, checkInsCount: currentCount });
+            const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+            text = res.trim();
+          }
+          if (win) {
+            win.webContents.send('body-double:message', {
+              text,
+              type: 'check_in',
+              timestamp: new Date().toISOString()
+            });
+            win.webContents.send('body-double:speak', text);
+          }
+        } catch (e) {
+          console.error('Error in body double checkin prompt:', e);
+        }
+      }
+    );
+
+    setTimeout(async () => {
+      try {
+        const provider = getAIProviderInstance();
+        let text = `مرحباً بك! أنا ${session.personaName}. دعنا نركز معاً لإنجاز هدفنا اليوم. 🌟`;
+        if (provider) {
+          const prompt = buildBodyDoublePrompt('start', session);
+          const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+          text = res.trim();
+        }
+        if (win) {
+          win.webContents.send('body-double:message', {
+            text,
+            type: 'start',
+            timestamp: new Date().toISOString()
+          });
+          win.webContents.send('body-double:speak', text);
+        }
+      } catch (e) {
+        console.error('Error generating start double message:', e);
+      }
+    }, 1000);
+
+    return session;
+  });
+
+  ipcMain.handle('bodyDouble:stopSession', async (_, actualMinutes, completed) => {
+    bodyDoubleService.stopSession(actualMinutes, completed);
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    if (win) {
+      try {
+        const provider = getAIProviderInstance();
+        let text = 'لقد أنهينا الجلسة بنجاح! عمل رائع ومجهود مميز اليوم 🎉';
+        if (provider) {
+          const mockSession = { personaName: 'مرافق', checkInsCount: 0, checkInIntervalMin: 10 } as any;
+          const prompt = buildBodyDoublePrompt('done', mockSession);
+          const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+          text = res.trim();
+        }
+        win.webContents.send('body-double:message', {
+          text,
+          type: 'done',
+          timestamp: new Date().toISOString()
+        });
+        win.webContents.send('body-double:speak', text);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  });
+
+  // ==========================================
+  // Sleep Logs IPC Handlers
+  // ==========================================
+  ipcMain.handle('sleep:getSleepLogs', async (_, limit) => {
+    if (isFallbackDatabase()) {
+      const list = getFallbackCollection('sleep_logs');
+      const sorted = [...list].sort((a: any, b: any) => b.date.localeCompare(a.date));
+      return limit ? sorted.slice(0, limit) : sorted;
+    } else {
+      const db = getDatabase();
+      const all = db.select().from(schema.sleepLogs).all().sort((a, b) => b.date.localeCompare(a.date));
+      return limit ? all.slice(0, limit) : all;
+    }
+  });
+
+  ipcMain.handle('sleep:logSleep', async (_, log) => {
+    const date = log.date;
+    
+    if (isFallbackDatabase()) {
+      const list = getFallbackCollection('sleep_logs');
+      const existing = list.find((s: any) => s.date === date);
+      
+      let aiInsight = log.aiInsight || null;
+      if (log.totalHours && log.quality && !aiInsight) {
+        try {
+          const provider = getAIProviderInstance();
+          if (provider) {
+            const prompt = `أنت مستشار نوم ونشاط ADHD. حلل جودة وساعات هذا النوم:
+- عدد ساعات النوم: ${log.totalHours}
+- جودة النوم: ${log.quality}/5
+- تفكير متسارع قبل النوم: ${log.racingThoughts ? 'نعم' : 'لا'}
+- عدد مرات الاستيقاظ: ${log.midnightWakeups || 0}
+- أخذت أدوية: ${log.medicationTaken ? 'نعم' : 'لا'}
+
+اكتب تعليقاً علمياً ذكياً وقصيراً جداً (أقل من 20 كلمة) باللغة العربية حول كيف سيؤثر هذا على تركيزهم اليوم.`;
+            const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+            aiInsight = res.trim();
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      const payload = {
+        ...log,
+        aiInsight,
+        racingThoughts: log.racingThoughts ? 1 : 0,
+        medicationTaken: log.medicationTaken ? 1 : 0
+      };
+
+      if (existing) {
+        return updateFallback('sleep_logs', existing.id, payload);
+      } else {
+        return insertFallback('sleep_logs', payload);
+      }
+    } else {
+      const db = getDatabase();
+      const existing = db.select().from(schema.sleepLogs).where(eq(schema.sleepLogs.date, date)).get();
+      
+      let aiInsight = log.aiInsight || null;
+      if (log.totalHours && log.quality && !aiInsight) {
+        try {
+          const provider = getAIProviderInstance();
+          if (provider) {
+            const prompt = `أنت مستشار نوم ونشاط ADHD. حلل جودة وساعات هذا النوم:
+- عدد ساعات النوم: ${log.totalHours}
+- جودة النوم: ${log.quality}/5
+- تفكير متسارع قبل النوم: ${log.racingThoughts ? 'نعم' : 'لا'}
+- عدد مرات الاستيقاظ: ${log.midnightWakeups || 0}
+- أخذت أدوية: ${log.medicationTaken ? 'نعم' : 'لا'}
+
+اكتب تعليقاً علمياً ذكياً وقصيراً جداً (أقل من 20 كلمة) باللغة العربية حول كيف سيؤثر هذا على تركيزهم اليوم.`;
+            const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+            aiInsight = res.trim();
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      const payload = {
+        ...log,
+        aiInsight,
+        racingThoughts: log.racingThoughts ? true : false,
+        medicationTaken: log.medicationTaken ? true : false
+      };
+
+      if (existing) {
+        db.update(schema.sleepLogs).set(payload as any).where(eq(schema.sleepLogs.id, existing.id)).run();
+        return db.select().from(schema.sleepLogs).where(eq(schema.sleepLogs.id, existing.id)).get();
+      } else {
+        const res = db.insert(schema.sleepLogs).values({
+          ...payload,
+          createdAt: new Date()
+        } as any).run();
+        return db.select().from(schema.sleepLogs).where(eq(schema.sleepLogs.id, Number(res.lastInsertRowid))).get();
+      }
+    }
+  });
+
+  ipcMain.handle('sleep:deleteSleepLog', async (_, id) => {
+    if (isFallbackDatabase()) {
+      return deleteFallback('sleep_logs', id);
+    } else {
+      const db = getDatabase();
+      db.delete(schema.sleepLogs).where(eq(schema.sleepLogs.id, id)).run();
+      return true;
+    }
+  });
+
+  // ==========================================
+  // Intelligence Layer IPC Handlers
+  // ==========================================
+  ipcMain.handle('intelligence:getPatternInsights', async (_) => {
+    let list: any[] = [];
+    if (isFallbackDatabase()) {
+      list = getFallbackCollection('pattern_insights');
+    } else {
+      const db = getDatabase();
+      list = db.select().from(schema.patternInsights).all();
+    }
+    if (list.length === 0) {
+      return intelligenceService.generateBehaviorInsights();
+    }
+    return list;
+  });
+
+  ipcMain.handle('intelligence:refreshInsights', async (_) => {
+    if (isFallbackDatabase()) {
+      const pi = getFallbackCollection('pattern_insights');
+      pi.length = 0;
+    } else {
+      const db = getDatabase();
+      db.delete(schema.patternInsights).run();
+    }
+    return intelligenceService.generateBehaviorInsights();
+  });
+
+  ipcMain.handle('intelligence:getWeeklyAutopsy', async (_) => {
+    const rawData = await intelligenceService.compileWeeklyReportData();
+    const provider = getAIProviderInstance();
+    let aiNarrative = `تحليل الأداء الأسبوعي: لقد قمت بعمل متميز في الحفاظ على تركيزك، وبلغت دقائق تركيزك ${rawData.totalFocusMinutes} دقيقة على مدار ${rawData.focusSessionsCount} جلسة. حافظ على عاداتك الجيدة ونومك المستقر لتعزيز النتائج!`;
+    
+    if (provider) {
+      try {
+        const prompt = buildWeeklyAutopsyPrompt(rawData);
+        const res = await provider.sendMessage([{ role: 'user', content: prompt }]);
+        aiNarrative = res.trim();
+      } catch (err) {
+        console.error('Error generating weekly autopsy AI narrative:', err);
+      }
+    }
+
+    const keyPatterns = await intelligenceService.generateBehaviorInsights();
+    
+    const nextWeekRecommendations = {
+      peakWindow: rawData.totalFocusMinutes > 0 ? 'من الصباح الباكر حتى الظهيرة' : 'الفترة المسائية',
+      microStepSuggestion: 'قم بتقسيم أي مهمة معلقة إلى أجزاء لا تتجاوز 10 دقائق.',
+      sleepRecommendation: rawData.racingThoughtsCount > 2 ? 'تجنب الشاشات قبل النوم بـ 45 دقيقة وجرب كسر الأفكار المتسارعة.' : 'النوم في وقت ثابت يعزز الدوبامين الطبيعي صباحاً.'
+    };
+
+    return {
+      rawData,
+      aiNarrative,
+      keyPatterns,
+      nextWeekRecommendations
+    };
+  });
+
+  // ==========================================
+  // Commitments IPC Handlers
+  // ==========================================
+  ipcMain.handle('commitments:getCommitments', async (_) => {
+    if (isFallbackDatabase()) {
+      return getFallbackCollection('commitments');
+    } else {
+      const db = getDatabase();
+      return db.select().from(schema.commitments).all();
+    }
+  });
+
+  ipcMain.handle('commitments:createCommitment', async (_, commitment) => {
+    if (isFallbackDatabase()) {
+      return insertFallback('commitments', {
+        ...commitment,
+        status: 'active',
+        streak: 0,
+        completionRate: 0,
+        aiCheckinEnabled: commitment.aiCheckinEnabled ? 1 : 0,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      const db = getDatabase();
+      const res = db.insert(schema.commitments).values({
+        ...commitment,
+        status: 'active',
+        streak: 0,
+        completionRate: 0,
+        aiCheckinEnabled: commitment.aiCheckinEnabled ? true : false,
+        createdAt: new Date()
+      } as any).run();
+      return db.select().from(schema.commitments).where(eq(schema.commitments.id, Number(res.lastInsertRowid))).get();
+    }
+  });
+
+  ipcMain.handle('commitments:updateCommitment', async (_, id, updates) => {
+    if (isFallbackDatabase()) {
+      return updateFallback('commitments', id, updates);
+    } else {
+      const db = getDatabase();
+      db.update(schema.commitments).set(updates as any).where(eq(schema.commitments.id, id)).run();
+      return db.select().from(schema.commitments).where(eq(schema.commitments.id, id)).get();
+    }
+  });
+
+  ipcMain.handle('commitments:deleteCommitment', async (_, id) => {
+    if (isFallbackDatabase()) {
+      return deleteFallback('commitments', id);
+    } else {
+      const db = getDatabase();
+      db.delete(schema.commitments).where(eq(schema.commitments.id, id)).run();
+      return true;
+    }
+  });
 
   ipcMain.on('system:showNotification', (_, title, body) => {
     try {

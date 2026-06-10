@@ -20,6 +20,12 @@ import Achievements from './pages/Achievements'
 import Onboarding from './pages/Onboarding'
 import LevelUpOverlay from './components/gamification/LevelUpOverlay'
 import { useUserProfileQuery } from './hooks/useXP'
+import SecondBrain from './pages/SecondBrain'
+import Journal from './pages/Journal'
+import BodyDouble from './pages/BodyDouble'
+import Sleep from './pages/Sleep'
+import Commitments from './pages/Commitments'
+import Intelligence from './pages/Intelligence'
 
 function AppContent() {
   const activeTab = useAppStore((state) => state.activeTab)
@@ -58,6 +64,18 @@ function AppContent() {
         return <KnowledgeMap />
       case 'focus':
         return <FocusMode />
+      case 'secondBrain':
+        return <SecondBrain />
+      case 'journal':
+        return <Journal />
+      case 'bodyDouble':
+        return <BodyDouble />
+      case 'sleep':
+        return <Sleep />
+      case 'commitments':
+        return <Commitments />
+      case 'intelligence':
+        return <Intelligence />
       case 'habits':
         return <Habits />
       case 'dopamine':
