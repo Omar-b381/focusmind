@@ -7,7 +7,7 @@ import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import { CircularProgress } from '../components/ui/Progress'
 import { useTasksQuery, useTaskQuery, useUpdateTaskMutation } from '../hooks/useTasks'
-import { useTracksQuery, useLessonsQuery, useUpdateLessonMutation } from '../hooks/useLearningTracks'
+import { usePathsQuery as useTracksQuery, useModulesQuery as useLessonsQuery, useUpdateModuleMutation as useUpdateLessonMutation } from '../hooks/useLearningPaths'
 import { useAddXPMutation } from '../hooks/useXP'
 import { useQueryClient } from '@tanstack/react-query'
 import Modal from '../components/ui/Modal'
@@ -411,7 +411,7 @@ export default function FocusMode() {
                       <span className="text-lg">{track.emoji || '📚'}</span>
                       <div className="text-right">
                         <span className="text-xs font-bold text-white block">{track.title}</span>
-                        <span className="text-[10px] text-gray-400 block font-cairo">التقدم: {track.completedLessons}/{track.totalLessons} درس</span>
+                        <span className="text-[10px] text-gray-400 block font-cairo">التقدم: {track.completedModules}/{track.totalModules} درس</span>
                       </div>
                     </div>
                     <span className="text-[11px] text-indigo-400 font-bold shrink-0">
